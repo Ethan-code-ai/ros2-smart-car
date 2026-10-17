@@ -1,0 +1,29 @@
+{
+  "unit_tests_passed": 84,
+  "dataset_frames_checked": 11756,
+  "sequences": 69,
+  "readable_evidence_images": 109,
+  "event_files": 69,
+  "balanced_events": true,
+  "immediate_alarm_matches_every_raw_frame": true,
+  "paddle_runtime_dependency": false,
+  "dual_model_gpu_checks": [
+    {
+      "source": "fall",
+      "frames": 108,
+      "alarm_frames": 84,
+      "first_alarm_seconds": 0.2,
+      "fallen_with_no_general_person": 0
+    },
+    {
+      "source": "normal",
+      "frames": 139,
+      "alarm_frames": 0,
+      "first_alarm_seconds": null,
+      "fallen_with_no_general_person": 0
+    }
+  ],
+  "audio_verification": "muted; audible output not tested",
+  "protected_files_checked": 522,
+  "protected_files_changed": []
+}

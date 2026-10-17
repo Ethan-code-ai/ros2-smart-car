@@ -1,0 +1,10 @@
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 36, "source_time": 1.1666666666666667, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 57, "source_time": 1.8666666666666667, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 59, "source_time": 1.9333333333333333, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 60, "source_time": 1.9666666666666666, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 63, "source_time": 2.066666666666667, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 64, "source_time": 2.1, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 65, "source_time": 2.1333333333333333, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 69, "source_time": 2.2666666666666666, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 70, "source_time": 2.3, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 75, "source_time": 2.466666666666667, "reason": "source_ended"}

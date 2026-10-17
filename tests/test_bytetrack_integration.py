@@ -26,7 +26,9 @@ def test_bytetrack_config_is_packaged_with_ros_share_data():
     assert "tracker_type: bytetrack" in config
     assert "track_high_thresh: 0.5" in config
     assert "track_low_thresh: 0.1" in config
-    assert "track_buffer: 8" in config
+    # Raised from 8 (0.27 s) to 30 (1.0 s) so a fallen person keeps their
+    # track ID through the detector gap that happens as they reach the floor.
+    assert "track_buffer: 30" in config
 
 
 def test_tracking_selection_and_status_topics_are_wired():

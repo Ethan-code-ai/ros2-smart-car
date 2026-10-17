@@ -1,0 +1,4 @@
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 214, "source_time": 7.1, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 216, "source_time": 7.166666666666667, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 217, "source_time": 7.2, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 219, "source_time": 7.266666666666667, "reason": "state_changed"}

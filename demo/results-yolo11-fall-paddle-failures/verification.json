@@ -1,0 +1,14 @@
+{
+  "sequences": 21,
+  "dataset_frames": 3030,
+  "readable_evidence_images": 25,
+  "event_files": 21,
+  "balanced_events": true,
+  "unit_tests_passed": 75,
+  "protected_files_checked": 254,
+  "protected_files_changed": [],
+  "video_output_frames_verified": [
+    139,
+    108
+  ]
+}

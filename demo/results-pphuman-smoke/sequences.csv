@@ -1,0 +1,3 @@
+﻿sequence,kind,reported,false_alarm_frames,first_alarm_frame,first_lying_frame,latency_seconds,lying_frames,pre_alarm_fn,dropout_fn
+adl-31,adl,False,143,100,145,,76,0,0
+fall-04,fall,True,0,50,44,0.2,53,6,0

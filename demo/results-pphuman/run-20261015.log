@@ -1,0 +1,291 @@
+INFO: Could not find files for the given pattern(s).
+D:\智能小车\ros2-smart-car\.venv-pphuman311\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:718: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+Warning: Unable to use numba in PP-Tracking, please install numba, for example(python3.7): `pip install numba==0.56.4`
+Warning: Unable to use numba in PP-Tracking, please install numba, for example(python3.7): `pip install numba==0.56.4`
+-----------  Model Configuration -----------
+Model Arch: YOLO
+Transform Order: 
+--transform op: Resize
+--transform op: Permute
+--------------------------------------------
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+W1015 17:13:28.172948 298500 gpu_resources.cc:114] Please NOTE: device: 0, GPU Compute Capability: 8.9, Driver API Version: 12.7, Runtime API Version: 12.6
+-----------  Model Configuration -----------
+Model Arch: HRNet
+Transform Order: 
+--transform op: TopDownEvalAffine
+--transform op: Permute
+--------------------------------------------
+-----------  Model Configuration -----------
+Model Arch: STGCN
+Transform Order: 
+--transform op: AutoPadding
+--------------------------------------------
+[1/69] adl-01: valid cache
+[2/69] adl-02: valid cache
+[3/69] adl-03: valid cache
+[4/69] adl-04: valid cache
+[5/69] adl-05: valid cache
+[6/69] adl-06: valid cache
+[7/69] adl-07: valid cache
+[8/69] adl-09: valid cache
+[9/69] adl-10: valid cache
+[10/69] adl-11: valid cache
+[11/69] adl-12: valid cache
+[12/69] adl-13: valid cache
+[13/69] adl-14: valid cache
+[14/69] adl-15: valid cache
+[15/69] adl-16: valid cache
+[16/69] adl-17: valid cache
+[17/69] adl-18: valid cache
+[18/69] adl-19: valid cache
+[19/69] adl-20: valid cache
+[20/69] adl-21: valid cache
+[21/69] adl-22: valid cache
+[22/69] adl-23: valid cache
+[23/69] adl-24: valid cache
+[24/69] adl-25: running
+  adl-25: 50/110 frames
+  adl-25: 100/110 frames
+  complete: 6.88s, 16.0 FPS
+[25/69] adl-26: running
+  adl-26: 50/95 frames
+  complete: 4.91s, 19.3 FPS
+[26/69] adl-27: running
+  adl-27: 50/100 frames
+  adl-27: 100/100 frames
+  complete: 5.14s, 19.4 FPS
+[27/69] adl-28: running
+  adl-28: 50/85 frames
+  complete: 4.34s, 19.6 FPS
+[28/69] adl-29: running
+  adl-29: 50/125 frames
+  adl-29: 100/125 frames
+  complete: 26.76s, 4.7 FPS
+[29/69] adl-30: running
+  adl-30: 50/400 frames
+  adl-30: 100/400 frames
+  adl-30: 150/400 frames
+  adl-30: 200/400 frames
+  adl-30: 250/400 frames
+  adl-30: 300/400 frames
+  adl-30: 350/400 frames
+  adl-30: 400/400 frames
+  complete: 63.30s, 6.3 FPS
+[30/69] adl-31: running
+  adl-31: 50/250 frames
+  adl-31: 100/250 frames
+  adl-31: 150/250 frames
+  adl-31: 200/250 frames
+  adl-31: 250/250 frames
+  complete: 58.56s, 4.3 FPS
+[31/69] adl-32: running
+  adl-32: 50/200 frames
+  adl-32: 100/200 frames
+  adl-32: 150/200 frames
+  adl-32: 200/200 frames
+  complete: 35.35s, 5.7 FPS
+[32/69] adl-33: running
+  adl-33: 50/200 frames
+  adl-33: 100/200 frames
+  adl-33: 150/200 frames
+  adl-33: 200/200 frames
+  complete: 30.26s, 6.6 FPS
+[33/69] adl-34: running
+  adl-34: 50/191 frames
+  adl-34: 100/191 frames
+  adl-34: 150/191 frames
+  complete: 50.37s, 3.8 FPS
+[34/69] adl-35: running
+  adl-35: 50/280 frames
+  adl-35: 100/280 frames
+  adl-35: 150/280 frames
+  adl-35: 200/280 frames
+  adl-35: 250/280 frames
+  complete: 41.14s, 6.8 FPS
+[35/69] adl-36: running
+  adl-36: 50/340 frames
+  adl-36: 100/340 frames
+  adl-36: 150/340 frames
+  adl-36: 200/340 frames
+  adl-36: 250/340 frames
+  adl-36: 300/340 frames
+  complete: 66.68s, 5.1 FPS
+[36/69] adl-37: running
+  adl-37: 50/350 frames
+  adl-37: 100/350 frames
+  adl-37: 150/350 frames
+  adl-37: 200/350 frames
+  adl-37: 250/350 frames
+  adl-37: 300/350 frames
+  adl-37: 350/350 frames
+  complete: 77.70s, 4.5 FPS
+[37/69] adl-38: running
+  adl-38: 50/345 frames
+  adl-38: 100/345 frames
+  adl-38: 150/345 frames
+  adl-38: 200/345 frames
+  adl-38: 250/345 frames
+  adl-38: 300/345 frames
+  complete: 35.61s, 9.7 FPS
+[38/69] adl-39: running
+  adl-39: 50/270 frames
+  adl-39: 100/270 frames
+  adl-39: 150/270 frames
+  adl-39: 200/270 frames
+  adl-39: 250/270 frames
+  complete: 38.60s, 7.0 FPS
+[39/69] adl-40: running
+  adl-40: 50/330 frames
+  adl-40: 100/330 frames
+  adl-40: 150/330 frames
+  adl-40: 200/330 frames
+  adl-40: 250/330 frames
+  adl-40: 300/330 frames
+  complete: 16.08s, 20.5 FPS
+[40/69] fall-01: running
+  fall-01: 50/160 frames
+  fall-01: 100/160 frames
+  fall-01: 150/160 frames
+  complete: 32.55s, 4.9 FPS
+[41/69] fall-02: running
+  fall-02: 50/110 frames
+  fall-02: 100/110 frames
+  complete: 31.04s, 3.5 FPS
+[42/69] fall-03: running
+  fall-03: 50/215 frames
+  fall-03: 100/215 frames
+  fall-03: 150/215 frames
+  fall-03: 200/215 frames
+  complete: 61.21s, 3.5 FPS
+[43/69] fall-04: running
+  fall-04: 50/96 frames
+  complete: 27.57s, 3.5 FPS
+[44/69] fall-05: running
+  fall-05: 50/151 frames
+  fall-05: 100/151 frames
+  fall-05: 150/151 frames
+  complete: 41.25s, 3.7 FPS
+[45/69] fall-06: running
+  fall-06: 50/100 frames
+  fall-06: 100/100 frames
+  complete: 27.96s, 3.6 FPS
+[46/69] fall-07: running
+  fall-07: 50/156 frames
+  fall-07: 100/156 frames
+  fall-07: 150/156 frames
+  complete: 44.44s, 3.5 FPS
+[47/69] fall-08: running
+  fall-08: 50/91 frames
+  complete: 26.06s, 3.5 FPS
+[48/69] fall-09: running
+  fall-09: 50/185 frames
+  fall-09: 100/185 frames
+  fall-09: 150/185 frames
+  complete: 53.73s, 3.4 FPS
+[49/69] fall-10: running
+  fall-10: 50/130 frames
+  fall-10: 100/130 frames
+  complete: 37.38s, 3.5 FPS
+[50/69] fall-11: running
+  fall-11: 50/130 frames
+  fall-11: 100/130 frames
+  complete: 37.42s, 3.5 FPS
+[51/69] fall-12: running
+  fall-12: 50/110 frames
+  fall-12: 100/110 frames
+  complete: 31.41s, 3.5 FPS
+[52/69] fall-13: running
+  fall-13: 50/85 frames
+  complete: 25.61s, 3.3 FPS
+[53/69] fall-14: running
+  fall-14: 50/61 frames
+  complete: 17.45s, 3.5 FPS
+[54/69] fall-15: running
+  fall-15: 50/71 frames
+  complete: 18.63s, 3.8 FPS
+[55/69] fall-16: running
+  fall-16: 50/55 frames
+  complete: 9.10s, 6.0 FPS
+[56/69] fall-17: running
+  fall-17: 50/95 frames
+  complete: 4.86s, 19.6 FPS
+[57/69] fall-18: running
+  fall-18: 50/65 frames
+  complete: 3.28s, 19.8 FPS
+[58/69] fall-19: running
+  fall-19: 50/100 frames
+  fall-19: 100/100 frames
+  complete: 7.95s, 12.6 FPS
+[59/69] fall-20: running
+  fall-20: 50/110 frames
+  fall-20: 100/110 frames
+  complete: 27.67s, 4.0 FPS
+[60/69] fall-21: running
+  fall-21: 50/55 frames
+  complete: 13.40s, 4.1 FPS
+[61/69] fall-22: running
+  fall-22: 50/56 frames
+  complete: 14.06s, 4.0 FPS
+[62/69] fall-23: running
+  fall-23: 50/75 frames
+  complete: 18.93s, 4.0 FPS
+[63/69] fall-24: running
+  fall-24: 50/60 frames
+  complete: 14.82s, 4.0 FPS
+[64/69] fall-25: running
+  fall-25: 50/85 frames
+  complete: 21.21s, 4.0 FPS
+[65/69] fall-26: running
+  fall-26: 50/61 frames
+  complete: 15.11s, 4.0 FPS
+[66/69] fall-27: running
+  fall-27: 50/92 frames
+  complete: 22.57s, 4.1 FPS
+[67/69] fall-28: running
+  fall-28: 50/66 frames
+  complete: 17.21s, 3.8 FPS
+[68/69] fall-29: running
+  fall-29: 50/99 frames
+  complete: 13.73s, 7.2 FPS
+[69/69] fall-30: running
+  fall-30: 50/70 frames
+  complete: 3.53s, 19.8 FPS
+{
+  "n_falls": 30,
+  "n_adl_hard_negatives": 16,
+  "hard_negatives_with_false_alarm": 12,
+  "n_adl_easy": 23,
+  "easy_negatives_with_false_alarm": 3,
+  "falls_reported": 16,
+  "event_recall": 0.5333333333333333,
+  "missed": [
+    "fall-05",
+    "fall-08",
+    "fall-09",
+    "fall-15",
+    "fall-17",
+    "fall-19",
+    "fall-21",
+    "fall-23",
+    "fall-24",
+    "fall-25",
+    "fall-27",
+    "fall-28",
+    "fall-29",
+    "fall-30"
+  ],
+  "pre_alarm_fn": 586,
+  "dropout_fn": 0,
+  "dropout_no_detection": 0,
+  "pooled_coverage_after_alarm": 1.0,
+  "median_latency_frames": 19,
+  "max_latency_frames": 56,
+  "n_adl_sequences": 39,
+  "adl_sequences_with_false_alarm": 15,
+  "false_alarm_frames": 1228,
+  "adl_minutes": 4.867222222222223,
+  "false_alarm_frames_per_minute": 252.2999657573336
+}
+Report: D:\智能小车\ros2-smart-car\demo\results-pphuman\report.md

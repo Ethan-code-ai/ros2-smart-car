@@ -1,0 +1,43 @@
+{
+  "original_bbox": {
+    "fall_reported": 16,
+    "fall_total": 30,
+    "lying_activity_reported": 13,
+    "lying_activity_total": 16,
+    "any_lying_sequences_reported": 29,
+    "any_lying_sequences_total": 46,
+    "any_lying_sequence_recall": 0.6304347826086957,
+    "ordinary_adl_false_alarm_sequences": 1,
+    "ordinary_adl_sequences": 23,
+    "ordinary_adl_false_alarm_rate": 0.043478260869565216,
+    "any_lying_sequence_precision": 0.9666666666666667
+  },
+  "pphuman": {
+    "fall_reported": 16,
+    "fall_total": 30,
+    "lying_activity_reported": 12,
+    "lying_activity_total": 16,
+    "any_lying_sequences_reported": 28,
+    "any_lying_sequences_total": 46,
+    "any_lying_sequence_recall": 0.6086956521739131,
+    "ordinary_adl_false_alarm_sequences": 3,
+    "ordinary_adl_sequences": 23,
+    "ordinary_adl_false_alarm_rate": 0.13043478260869565,
+    "any_lying_sequence_precision": 0.9032258064516129
+  },
+  "pphuman_any_lying_frame_metrics": {
+    "tp": 1168,
+    "fp": 65,
+    "tn": 7216,
+    "fn": 1205,
+    "positives": 2373,
+    "negatives": 7281,
+    "precision": 0.9472830494728305,
+    "recall": 0.4922039612305099,
+    "specificity": 0.9910726548551023,
+    "accuracy": 0.8684483115806919,
+    "f1": 0.6478092068774265,
+    "balanced_accuracy": 0.7416383080428062,
+    "mcc": 0.6234143494716349
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "sequences": 69,
+  "frames": 11756,
+  "prior_caches_reused_byte_identically": 21,
+  "previous_subset_metrics_unchanged": true,
+  "new_gpu_sequences": 48,
+  "new_gpu_frames": 8726,
+  "evidence_images_decoded": 72,
+  "event_files": 69,
+  "balanced_events": true,
+  "evaluation_tests_passed": 77,
+  "protected_files_checked": 326,
+  "protected_files_changed": [],
+  "cuda_device": "cuda:0",
+  "dtype": "torch.float32"
+}

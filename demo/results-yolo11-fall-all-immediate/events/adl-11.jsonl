@@ -1,0 +1,2 @@
+{"event_type": "person_lying", "state": "started", "scope": "scene", "scene_id": 1, "frame": 197, "source_time": 6.533333333333333, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "scope": "scene", "scene_id": 1, "frame": 199, "source_time": 6.6, "reason": "state_changed"}

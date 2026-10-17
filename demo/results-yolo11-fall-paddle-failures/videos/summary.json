@@ -1,0 +1,28 @@
+[
+  {
+    "source": "D:\\智能小车\\正常.mp4",
+    "output": "D:\\智能小车\\ros2-smart-car\\demo\\results-yolo11-fall-paddle-failures\\videos\\正常-yolo11-fall.mp4",
+    "frames": 139,
+    "fps": 30.0,
+    "raw_frames": 0,
+    "confirmed_frames": 0,
+    "first_raw_seconds": null,
+    "first_alarm_seconds": null,
+    "decoded_output_frames": 139,
+    "accuracy": null,
+    "note": "Unannotated demonstration, excluded from dataset accuracy"
+  },
+  {
+    "source": "D:\\智能小车\\倒地.mp4",
+    "output": "D:\\智能小车\\ros2-smart-car\\demo\\results-yolo11-fall-paddle-failures\\videos\\倒地-yolo11-fall.mp4",
+    "frames": 108,
+    "fps": 30.0,
+    "raw_frames": 84,
+    "confirmed_frames": 24,
+    "first_raw_seconds": 0.2,
+    "first_alarm_seconds": 2.8,
+    "decoded_output_frames": 108,
+    "accuracy": null,
+    "note": "Unannotated demonstration, excluded from dataset accuracy"
+  }
+]

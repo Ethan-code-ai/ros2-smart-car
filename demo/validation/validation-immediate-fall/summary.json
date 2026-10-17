@@ -1,0 +1,18 @@
+{
+  "source": "D:\\智能小车\\倒地.mp4",
+  "frames": 108,
+  "fps": 30.0,
+  "alarm_frames": 84,
+  "alarm_events": 2,
+  "first_alarm_seconds": 0.2,
+  "confirm_seconds": 0.0,
+  "paddle_loaded": false,
+  "original_model_retained": true,
+  "actual_device": "cuda:0",
+  "actual_dtype": "torch.float32",
+  "max_start_dispatch_after_frame_read_ms": 66.23489991761744,
+  "decoded_output_frames": 108,
+  "sound_tested": false,
+  "sound_note": "Headless verification uses --mute; OS sound depends on system volume and selected output.",
+  "output_dir": "D:\\智能小车\\ros2-smart-car\\demo_output\\yolo11-fall\\validation-immediate-fall"
+}

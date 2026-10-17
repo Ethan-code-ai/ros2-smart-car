@@ -1,0 +1,245 @@
+{
+  "created_utc": "2026-10-14T14:16:22.009744+00:00",
+  "environment": {
+    "python": "3.11.17",
+    "paddle": "3.2.2",
+    "cuda": "12.6",
+    "cudnn": "9.9.0",
+    "device": "GPU",
+    "source_commit": "b25522a0f4bde8c80603f3ba5e3472059972e3b5",
+    "tracker": {
+      "type": "BOTSORTTracker",
+      "JDETracker": {
+        "use_byte": true,
+        "det_thresh": 0.3,
+        "conf_thres": 0.6,
+        "low_conf_thres": 0.1,
+        "match_thres": 0.9,
+        "min_box_area": 0,
+        "vertical_ratio": 0
+      },
+      "OCSORTTracker": {
+        "det_thresh": 0.4,
+        "max_age": 30,
+        "min_hits": 3,
+        "iou_threshold": 0.3,
+        "delta_t": 3,
+        "inertia": 0.2,
+        "min_box_area": 0,
+        "vertical_ratio": 0,
+        "use_byte": false,
+        "use_angle_cost": false
+      },
+      "DeepSORTTracker": {
+        "input_size": [
+          64,
+          192
+        ],
+        "min_box_area": 0,
+        "vertical_ratio": -1,
+        "budget": 100,
+        "max_age": 70,
+        "n_init": 3,
+        "metric_type": "cosine",
+        "matching_threshold": 0.2,
+        "max_iou_distance": 0.9
+      },
+      "BOTSORTTracker": {
+        "track_high_thresh": 0.3,
+        "track_low_thresh": 0.2,
+        "new_track_thresh": 0.4,
+        "match_thresh": 0.7,
+        "track_buffer": 30,
+        "min_box_area": 0,
+        "camera_motion": false,
+        "cmc_method": "sparseOptFlow"
+      }
+    },
+    "window_frames": 50,
+    "display_frames": 80,
+    "coord_size": [
+      384,
+      512
+    ],
+    "decision": "argmax, class 0=fall, class 1=other",
+    "run_mode": "paddle",
+    "dtype": "FP32",
+    "eos_flush": false,
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "mot_ppyoloe_l_36e_pipeline": {
+      "model.pdmodel": "4313771b9003bfe6229a5c164edab00fbb2f7a68971578690f3b71f25ae76952",
+      "model.pdiparams": "b2c08d6dacc6c2d3a461a9e7bb35475031b8fd2b51ada445ca5c44eb9a89be88",
+      "infer_cfg.yml": "5d411ed4dc3dcc777559423f6b1cb0703ede1c7e9b9edcab4101b34a87456051"
+    },
+    "dark_hrnet_w32_256x192": {
+      "model.pdmodel": "df75af8dbdb97ca07e39746728338dc4f96c0e7f06a782d0666334955997f180",
+      "model.pdiparams": "36ef43b1aaafddcdfcfbd3f71559bc96d48e1a57d19cc84d3d7941c7ad10ac68",
+      "infer_cfg.yml": "7e13100b524398c086d1e134b94e9c8f6c33418e72ee8ef744891229f56e0810"
+    },
+    "STGCN": {
+      "model.pdmodel": "256a6e743a6cd7008a19cf34bcc9a8bb8cb52a8324ce7bc106887b08863cf5e8",
+      "model.pdiparams": "3d694896bfb08e5d419a169df393b17a11f1ed5a05905ed6515fd3f209858538",
+      "infer_cfg.yml": "2ece9e2edd587851e29f378ea69f787c8d0c269384259e7d1eea76d8db602e3b"
+    }
+  },
+  "dataset": {
+    "n_sequences": 2,
+    "n_frames": 346,
+    "per_sequence": {
+      "adl-31": {
+        "frames": 250,
+        "lying": 76,
+        "transition": 80,
+        "not_lying": 94,
+        "unlabeled": 0
+      },
+      "fall-04": {
+        "frames": 96,
+        "lying": 53,
+        "transition": 30,
+        "not_lying": 13,
+        "unlabeled": 0
+      }
+    }
+  },
+  "event_summary": {
+    "n_falls": 1,
+    "n_adl_hard_negatives": 1,
+    "hard_negatives_with_false_alarm": 1,
+    "n_adl_easy": 0,
+    "easy_negatives_with_false_alarm": 0,
+    "falls_reported": 1,
+    "event_recall": 1.0,
+    "missed": [],
+    "pre_alarm_fn": 6,
+    "dropout_fn": 0,
+    "dropout_no_detection": 0,
+    "pooled_coverage_after_alarm": 1.0,
+    "median_latency_frames": 6,
+    "max_latency_frames": 6,
+    "n_adl_sequences": 1,
+    "adl_sequences_with_false_alarm": 1,
+    "false_alarm_frames": 143,
+    "adl_minutes": 0.1388888888888889,
+    "false_alarm_frames_per_minute": 1029.6
+  },
+  "raw_event_summary": {
+    "n_falls": 1,
+    "n_adl_hard_negatives": 1,
+    "hard_negatives_with_false_alarm": 1,
+    "n_adl_easy": 0,
+    "easy_negatives_with_false_alarm": 0,
+    "falls_reported": 1,
+    "event_recall": 1.0,
+    "missed": [],
+    "pre_alarm_fn": 6,
+    "dropout_fn": 46,
+    "dropout_no_detection": 0,
+    "pooled_coverage_after_alarm": 0.02127659574468085,
+    "median_latency_frames": 6,
+    "max_latency_frames": 6,
+    "n_adl_sequences": 1,
+    "adl_sequences_with_false_alarm": 1,
+    "false_alarm_frames": 3,
+    "adl_minutes": 0.1388888888888889,
+    "false_alarm_frames_per_minute": 21.599999999999998
+  },
+  "per_sequence": [
+    {
+      "sequence": "adl-31",
+      "kind": "adl",
+      "lying_frames": 76,
+      "first_lying_frame": 145,
+      "first_alarm_frame": 100,
+      "covered": 0,
+      "pre_alarm_fn": 0,
+      "dropout_fn": 0,
+      "dropout_no_detection": 0,
+      "false_alarm_frames": 143,
+      "reported": false,
+      "latency_frames": null,
+      "latency_seconds": null,
+      "coverage_after_alarm": null,
+      "false_alarm": true
+    },
+    {
+      "sequence": "fall-04",
+      "kind": "fall",
+      "lying_frames": 53,
+      "first_lying_frame": 44,
+      "first_alarm_frame": 50,
+      "covered": 47,
+      "pre_alarm_fn": 6,
+      "dropout_fn": 0,
+      "dropout_no_detection": 0,
+      "false_alarm_frames": 0,
+      "reported": true,
+      "latency_frames": 6,
+      "latency_seconds": 0.2,
+      "coverage_after_alarm": 1.0
+    }
+  ],
+  "raw_per_sequence": [
+    {
+      "sequence": "adl-31",
+      "kind": "adl",
+      "lying_frames": 76,
+      "first_lying_frame": 145,
+      "first_alarm_frame": 100,
+      "covered": 0,
+      "pre_alarm_fn": 0,
+      "dropout_fn": 0,
+      "dropout_no_detection": 0,
+      "false_alarm_frames": 3,
+      "reported": false,
+      "latency_frames": null,
+      "latency_seconds": null,
+      "coverage_after_alarm": null,
+      "false_alarm": true
+    },
+    {
+      "sequence": "fall-04",
+      "kind": "fall",
+      "lying_frames": 53,
+      "first_lying_frame": 44,
+      "first_alarm_frame": 50,
+      "covered": 1,
+      "pre_alarm_fn": 6,
+      "dropout_fn": 46,
+      "dropout_no_detection": 0,
+      "false_alarm_frames": 0,
+      "reported": true,
+      "latency_frames": 6,
+      "latency_seconds": 0.2,
+      "coverage_after_alarm": 0.02127659574468085
+    }
+  ],
+  "frame_metrics_fall_only": {
+    "tp": 47,
+    "fp": 68,
+    "tn": 115,
+    "fn": 6,
+    "positives": 53,
+    "negatives": 183,
+    "precision": 0.40869565217391307,
+    "recall": 0.8867924528301887,
+    "specificity": 0.6284153005464481,
+    "accuracy": 0.6864406779661016,
+    "f1": 0.5595238095238095,
+    "balanced_accuracy": 0.7576038766883184,
+    "mcc": 0.4301344869553561
+  },
+  "fall_decisions_after_onset": [
+    "fall-04"
+  ],
+  "premature_fall_decisions": [],
+  "performance": {
+    "seconds": 22.849666699999943,
+    "fps": 15.142452821861111
+  },
+  "limitations": [
+    "Official ST-GCN training includes URFD; this is not an independent generalization test.",
+    "Non-overlapping 50-observation windows; incomplete final windows are not flushed.",
+    "Frame alarms include the official 80-frame visualization hold; raw decisions are also reported."
+  ]
+}

@@ -7,3 +7,10 @@ log/
 web-console/node_modules/
 web-console/dist/
 web-console/vite-dev*.log
+demo_output/
+.urfall-work/
+.venv-demo-freeze-backup.txt
+.venv-demo/
+.venv-pphuman*/
+.ultralytics/
+Ultralytics/

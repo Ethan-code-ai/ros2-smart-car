@@ -1,0 +1,206 @@
+Selected 69 sequences, 11756 frames; scope=all
+DONE adl-01: 150 frames, 179.3 FPS
+DONE adl-02: 180 frames, 196.9 FPS
+DONE adl-03: 180 frames, 215.8 FPS
+DONE adl-04: 150 frames, 222.4 FPS
+DONE adl-05: 180 frames, 215.6 FPS
+DONE adl-06: 230 frames, 213.2 FPS
+DONE adl-07: 180 frames, 211.5 FPS
+DONE adl-09: 150 frames, 209.0 FPS
+DONE adl-10: 300 frames, 223.6 FPS
+DONE adl-11: 300 frames, 222.3 FPS
+REUSE PRIOR SUBSET adl-12
+REUSE PRIOR SUBSET adl-13
+DONE adl-14: 235 frames, 207.3 FPS
+DONE adl-15: 275 frames, 223.9 FPS
+DONE adl-16: 240 frames, 229.4 FPS
+DONE adl-17: 230 frames, 228.1 FPS
+DONE adl-18: 265 frames, 229.4 FPS
+DONE adl-19: 250 frames, 220.9 FPS
+DONE adl-20: 270 frames, 232.5 FPS
+DONE adl-21: 280 frames, 227.1 FPS
+REUSE PRIOR SUBSET adl-22
+REUSE PRIOR SUBSET adl-23
+REUSE PRIOR SUBSET adl-24
+DONE adl-25: 110 frames, 216.0 FPS
+DONE adl-26: 95 frames, 200.0 FPS
+DONE adl-27: 100 frames, 213.6 FPS
+DONE adl-28: 85 frames, 203.0 FPS
+DONE adl-29: 125 frames, 213.4 FPS
+DONE adl-30: 400 frames, 250.7 FPS
+DONE adl-31: 250 frames, 231.1 FPS
+DONE adl-32: 200 frames, 225.8 FPS
+DONE adl-33: 200 frames, 229.6 FPS
+DONE adl-34: 191 frames, 225.2 FPS
+DONE adl-35: 280 frames, 227.4 FPS
+REUSE PRIOR SUBSET adl-36
+REUSE PRIOR SUBSET adl-37
+DONE adl-38: 345 frames, 237.6 FPS
+DONE adl-39: 270 frames, 252.0 FPS
+DONE adl-40: 330 frames, 249.5 FPS
+DONE fall-01: 160 frames, 216.0 FPS
+DONE fall-02: 110 frames, 212.1 FPS
+DONE fall-03: 215 frames, 215.5 FPS
+DONE fall-04: 96 frames, 204.3 FPS
+REUSE PRIOR SUBSET fall-05
+DONE fall-06: 100 frames, 211.0 FPS
+DONE fall-07: 156 frames, 212.5 FPS
+REUSE PRIOR SUBSET fall-08
+REUSE PRIOR SUBSET fall-09
+DONE fall-10: 130 frames, 214.2 FPS
+DONE fall-11: 130 frames, 211.0 FPS
+DONE fall-12: 110 frames, 211.6 FPS
+DONE fall-13: 85 frames, 211.4 FPS
+DONE fall-14: 61 frames, 210.1 FPS
+REUSE PRIOR SUBSET fall-15
+DONE fall-16: 55 frames, 212.1 FPS
+REUSE PRIOR SUBSET fall-17
+DONE fall-18: 65 frames, 218.4 FPS
+REUSE PRIOR SUBSET fall-19
+DONE fall-20: 110 frames, 230.2 FPS
+REUSE PRIOR SUBSET fall-21
+DONE fall-22: 56 frames, 220.4 FPS
+REUSE PRIOR SUBSET fall-23
+REUSE PRIOR SUBSET fall-24
+REUSE PRIOR SUBSET fall-25
+DONE fall-26: 61 frames, 222.1 FPS
+REUSE PRIOR SUBSET fall-27
+REUSE PRIOR SUBSET fall-28
+REUSE PRIOR SUBSET fall-29
+REUSE PRIOR SUBSET fall-30
+Inference completion: {'reused_existing': 0, 'reused_prior_subset': 21, 'inferred_sequences': 48, 'inferred_frames': 8726}
+{
+  "dataset": {
+    "sequences": 69,
+    "frames": 11756,
+    "complete": true
+  },
+  "raw": {
+    "positive_reported": 40,
+    "positive_total": 46,
+    "recall": 0.8695652173913043,
+    "falls_reported": 28,
+    "falls_total": 30,
+    "lying_activity_reported": 12,
+    "lying_activity_total": 16,
+    "negative_false_alarms": 12,
+    "negative_total": 23,
+    "sufficient_observation_reported": 14,
+    "sufficient_observation_total": 18,
+    "insufficient_observation": 28,
+    "missed": [
+      "adl-11",
+      "adl-21",
+      "adl-22",
+      "adl-23",
+      "fall-18",
+      "fall-25"
+    ],
+    "false_alarms": [
+      "adl-01",
+      "adl-02",
+      "adl-03",
+      "adl-04",
+      "adl-05",
+      "adl-06",
+      "adl-07",
+      "adl-12",
+      "adl-15",
+      "adl-19",
+      "adl-20",
+      "adl-28"
+    ],
+    "median_latency_seconds": 0.0,
+    "frame_metrics": {
+      "tp": 966,
+      "fp": 376,
+      "tn": 6905,
+      "fn": 1407,
+      "positives": 2373,
+      "negatives": 7281,
+      "precision": 0.7198211624441133,
+      "recall": 0.40707964601769914,
+      "specificity": 0.9483587419310534,
+      "accuracy": 0.8153097161798218,
+      "f1": 0.5200538358008076,
+      "balanced_accuracy": 0.6777191939743763,
+      "mcc": 0.442363911940358
+    }
+  },
+  "confirmed": {
+    "positive_reported": 3,
+    "positive_total": 46,
+    "recall": 0.06521739130434782,
+    "falls_reported": 1,
+    "falls_total": 30,
+    "lying_activity_reported": 2,
+    "lying_activity_total": 16,
+    "negative_false_alarms": 0,
+    "negative_total": 23,
+    "sufficient_observation_reported": 2,
+    "sufficient_observation_total": 18,
+    "insufficient_observation": 28,
+    "missed": [
+      "adl-10",
+      "adl-11",
+      "adl-21",
+      "adl-22",
+      "adl-23",
+      "adl-30",
+      "adl-31",
+      "adl-32",
+      "adl-33",
+      "adl-35",
+      "adl-36",
+      "adl-38",
+      "adl-39",
+      "adl-40",
+      "fall-01",
+      "fall-02",
+      "fall-03",
+      "fall-04",
+      "fall-05",
+      "fall-06",
+      "fall-07",
+      "fall-08",
+      "fall-09",
+      "fall-10",
+      "fall-11",
+      "fall-13",
+      "fall-14",
+      "fall-15",
+      "fall-16",
+      "fall-17",
+      "fall-18",
+      "fall-19",
+      "fall-20",
+      "fall-21",
+      "fall-22",
+      "fall-23",
+      "fall-24",
+      "fall-25",
+      "fall-26",
+      "fall-27",
+      "fall-28",
+      "fall-29",
+      "fall-30"
+    ],
+    "false_alarms": [],
+    "median_latency_seconds": 1.8,
+    "frame_metrics": {
+      "tp": 92,
+      "fp": 0,
+      "tn": 7281,
+      "fn": 2281,
+      "positives": 2373,
+      "negatives": 7281,
+      "precision": 1.0,
+      "recall": 0.03876949009692372,
+      "specificity": 1.0,
+      "accuracy": 0.7637248808783924,
+      "f1": 0.07464503042596349,
+      "balanced_accuracy": 0.5193847450484619,
+      "mcc": 0.17181702318985392
+    }
+  }
+}

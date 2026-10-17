@@ -1,0 +1,18 @@
+{
+  "source": "D:\\智能小车\\正常.mp4",
+  "frames": 139,
+  "fps": 30.0,
+  "alarm_frames": 0,
+  "alarm_events": 0,
+  "first_alarm_seconds": null,
+  "confirm_seconds": 0.0,
+  "paddle_loaded": false,
+  "original_model_retained": true,
+  "actual_device": "cuda:0",
+  "actual_dtype": "torch.float32",
+  "max_start_dispatch_after_frame_read_ms": null,
+  "decoded_output_frames": 139,
+  "sound_tested": false,
+  "sound_note": "Headless verification uses --mute; OS sound depends on system volume and selected output.",
+  "output_dir": "D:\\智能小车\\ros2-smart-car\\demo_output\\yolo11-fall\\validation-immediate-normal"
+}

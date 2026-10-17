@@ -1,0 +1,2 @@
+{"event_type": "person_lying", "state": "started", "track_id": 2, "frame": 100, "source_time": 3.3, "reason": "state_changed"}
+{"event_type": "person_lying", "state": "ended", "track_id": 2, "frame": 191, "source_time": 6.333333333333333, "reason": "source_ended"}

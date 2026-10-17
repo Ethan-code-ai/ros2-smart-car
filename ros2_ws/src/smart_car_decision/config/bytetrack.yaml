@@ -2,6 +2,11 @@ tracker_type: bytetrack
 track_high_thresh: 0.5
 track_low_thresh: 0.1
 new_track_thresh: 0.6
-track_buffer: 8
+# Frames a lost track survives before its ID is retired. 8 frames is only
+# 0.27 s at 30 fps, which let a person who fell be re-issued a new track ID
+# the moment the detector blinked -- resetting the fall timer. Measured on
+# UR Fall: single-subject clips were producing 2 track IDs. 30 frames (1.0 s)
+# matches track_lost_grace_seconds in the anomaly rules.
+track_buffer: 30
 match_thresh: 0.8
 fuse_score: true

@@ -1,0 +1,165 @@
+INFO: Could not find files for the given pattern(s).
+D:\智能小车\ros2-smart-car\.venv-pphuman311\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:718: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+Warning: Unable to use numba in PP-Tracking, please install numba, for example(python3.7): `pip install numba==0.56.4`
+Warning: Unable to use numba in PP-Tracking, please install numba, for example(python3.7): `pip install numba==0.56.4`
+-----------  Model Configuration -----------
+Model Arch: YOLO
+Transform Order: 
+--transform op: Resize
+--transform op: Permute
+--------------------------------------------
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+W1014 22:24:28.398825 298672 gpu_resources.cc:114] Please NOTE: device: 0, GPU Compute Capability: 8.9, Driver API Version: 12.7, Runtime API Version: 12.6
+-----------  Model Configuration -----------
+Model Arch: HRNet
+Transform Order: 
+--transform op: TopDownEvalAffine
+--transform op: Permute
+--------------------------------------------
+-----------  Model Configuration -----------
+Model Arch: STGCN
+Transform Order: 
+--transform op: AutoPadding
+--------------------------------------------
+[1/69] adl-01: running
+  adl-01: 50/150 frames
+  adl-01: 100/150 frames
+  adl-01: 150/150 frames
+  complete: 11.71s, 12.8 FPS
+[2/69] adl-02: running
+  adl-02: 50/180 frames
+  adl-02: 100/180 frames
+  adl-02: 150/180 frames
+  complete: 11.36s, 15.8 FPS
+[3/69] adl-03: running
+  adl-03: 50/180 frames
+  adl-03: 100/180 frames
+  adl-03: 150/180 frames
+  complete: 12.19s, 14.8 FPS
+[4/69] adl-04: running
+  adl-04: 50/150 frames
+  adl-04: 100/150 frames
+  adl-04: 150/150 frames
+  complete: 12.03s, 12.5 FPS
+[5/69] adl-05: running
+  adl-05: 50/180 frames
+  adl-05: 100/180 frames
+  adl-05: 150/180 frames
+  complete: 15.77s, 11.4 FPS
+[6/69] adl-06: running
+  adl-06: 50/230 frames
+  adl-06: 100/230 frames
+  adl-06: 150/230 frames
+  adl-06: 200/230 frames
+  complete: 18.84s, 12.2 FPS
+[7/69] adl-07: running
+  adl-07: 50/180 frames
+  adl-07: 100/180 frames
+  adl-07: 150/180 frames
+  complete: 14.44s, 12.5 FPS
+[8/69] adl-09: running
+  adl-09: 50/150 frames
+  adl-09: 100/150 frames
+  adl-09: 150/150 frames
+  complete: 11.62s, 12.9 FPS
+[9/69] adl-10: running
+  adl-10: 50/300 frames
+  adl-10: 100/300 frames
+  adl-10: 150/300 frames
+  adl-10: 200/300 frames
+  adl-10: 250/300 frames
+  adl-10: 300/300 frames
+  complete: 22.03s, 13.6 FPS
+[10/69] adl-11: running
+  adl-11: 50/300 frames
+  adl-11: 100/300 frames
+  adl-11: 150/300 frames
+  adl-11: 200/300 frames
+  adl-11: 250/300 frames
+  adl-11: 300/300 frames
+  complete: 22.26s, 13.5 FPS
+[11/69] adl-12: running
+  adl-12: 50/250 frames
+  adl-12: 100/250 frames
+  adl-12: 150/250 frames
+  adl-12: 200/250 frames
+  adl-12: 250/250 frames
+  complete: 15.72s, 15.9 FPS
+[12/69] adl-13: running
+  adl-13: 50/265 frames
+  adl-13: 100/265 frames
+  adl-13: 150/265 frames
+  adl-13: 200/265 frames
+  adl-13: 250/265 frames
+  complete: 16.22s, 16.3 FPS
+[13/69] adl-14: running
+  adl-14: 50/235 frames
+  adl-14: 100/235 frames
+  adl-14: 150/235 frames
+  adl-14: 200/235 frames
+  complete: 14.58s, 16.1 FPS
+[14/69] adl-15: running
+  adl-15: 50/275 frames
+  adl-15: 100/275 frames
+  adl-15: 150/275 frames
+  adl-15: 200/275 frames
+  adl-15: 250/275 frames
+  complete: 17.36s, 15.8 FPS
+[15/69] adl-16: running
+  adl-16: 50/240 frames
+  adl-16: 100/240 frames
+  adl-16: 150/240 frames
+  adl-16: 200/240 frames
+  complete: 13.73s, 17.5 FPS
+[16/69] adl-17: running
+  adl-17: 50/230 frames
+  adl-17: 100/230 frames
+  adl-17: 150/230 frames
+  adl-17: 200/230 frames
+  complete: 14.95s, 15.4 FPS
+[17/69] adl-18: running
+  adl-18: 50/265 frames
+  adl-18: 100/265 frames
+  adl-18: 150/265 frames
+  adl-18: 200/265 frames
+  adl-18: 250/265 frames
+  complete: 16.52s, 16.0 FPS
+[18/69] adl-19: running
+  adl-19: 50/250 frames
+  adl-19: 100/250 frames
+  adl-19: 150/250 frames
+  adl-19: 200/250 frames
+  adl-19: 250/250 frames
+  complete: 14.70s, 17.0 FPS
+[19/69] adl-20: running
+  adl-20: 50/270 frames
+  adl-20: 100/270 frames
+  adl-20: 150/270 frames
+  adl-20: 200/270 frames
+  adl-20: 250/270 frames
+  complete: 16.29s, 16.6 FPS
+[20/69] adl-21: running
+  adl-21: 50/280 frames
+  adl-21: 100/280 frames
+  adl-21: 150/280 frames
+  adl-21: 200/280 frames
+  adl-21: 250/280 frames
+  complete: 14.90s, 18.8 FPS
+[21/69] adl-22: running
+  adl-22: 50/240 frames
+  adl-22: 100/240 frames
+  adl-22: 150/240 frames
+  adl-22: 200/240 frames
+  complete: 12.57s, 19.1 FPS
+[22/69] adl-23: running
+  adl-23: 50/220 frames
+  adl-23: 100/220 frames
+  adl-23: 150/220 frames
+  adl-23: 200/220 frames
+  complete: 11.50s, 19.1 FPS
+[23/69] adl-24: running
+  adl-24: 50/70 frames
+  complete: 4.20s, 16.7 FPS
+[24/69] adl-25: running
+  adl-25: 50/110 frames

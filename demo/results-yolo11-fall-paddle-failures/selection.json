@@ -1,0 +1,29 @@
+{
+  "source": "D:\\智能小车\\ros2-smart-car\\demo\\results-pphuman\\metrics.json",
+  "sha256": "7fcd8fc6193d444a849fae2d43b58c03f291f7c090403652e7a4d00d7e3a412b",
+  "failures": {
+    "adl-12": "ordinary_activity_false_alarm",
+    "adl-13": "ordinary_activity_false_alarm",
+    "adl-22": "missed_lying_activity",
+    "adl-23": "missed_lying_activity",
+    "adl-24": "ordinary_activity_false_alarm",
+    "adl-36": "missed_lying_activity",
+    "adl-37": "missed_lying_activity",
+    "fall-05": "missed_fall",
+    "fall-08": "missed_fall",
+    "fall-09": "missed_fall",
+    "fall-15": "missed_fall",
+    "fall-17": "missed_fall",
+    "fall-19": "missed_fall",
+    "fall-21": "missed_fall",
+    "fall-23": "missed_fall",
+    "fall-24": "missed_fall",
+    "fall-25": "missed_fall",
+    "fall-27": "missed_fall",
+    "fall-28": "missed_fall",
+    "fall-29": "missed_fall",
+    "fall-30": "missed_fall"
+  },
+  "sequences": 21,
+  "frames": 3030
+}
