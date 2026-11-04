@@ -9,7 +9,7 @@ from pathlib import Path
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--compiler',type=Path);parser.add_argument('--output-dir',type=Path);args=parser.parse_args()
-    root=Path(__file__).resolve().parents[1];out=(args.output_dir or root/'output/windows-app-20261021').resolve()
+    root=Path(__file__).resolve().parents[1];out=(args.output_dir or root/'output/windows-app-20261027').resolve()
     out.mkdir(parents=True,exist_ok=True)
     version=runpy.run_path(str(root/'desktop/insightrover_desktop/__init__.py'))['VERSION']
     subprocess.run(['cmd','/c','npm','run','build'],cwd=root/'web-console',check=True)

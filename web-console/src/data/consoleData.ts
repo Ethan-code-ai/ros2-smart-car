@@ -8,7 +8,7 @@ export type ModeId = "stop" | "manual" | "auto" | "mapping" | "navigation" | "co
 export const modes = [
   { id: "stop" as ModeId, name: "停止", command: "stop", description: "车辆保持静止，适合调试和待机", icon: CircleStop },
   { id: "manual" as ModeId, name: "手动", command: "manual", description: "网页方向键通过后端发布手动指令", icon: Gamepad2 },
-  { id: "auto" as ModeId, name: "自动避障", command: "auto", description: "融合雷达安全避障进行自动行驶", icon: Route },
+  { id: "auto" as ModeId, name: "自动巡航", command: "auto", description: "按照视觉指令巡航，共享主动避障保护", icon: Route },
   { id: "mapping" as ModeId, name: "建图", command: "mapping", description: "切换到 SLAM 建图工作流", icon: Map },
   { id: "navigation" as ModeId, name: "导航", command: "navigation", description: "保留 Nav2 底盘控制权", icon: Navigation },
   { id: "color_track" as ModeId, name: "颜色追踪", command: "color_track", description: "HSV 目标追踪并输出偏移量", icon: Crosshair },
@@ -18,7 +18,7 @@ export const modes = [
 export const modeFocusText: Record<ModeId, string> = {
   stop: "底盘输出保持为零，适合调试、换场地或等待传感器稳定。",
   manual: "手动模式接收网页遥控指令，适合架空测试底盘响应和方向映射。",
-  auto: "自动避障结合雷达前方距离生成安全速度，遇到近障碍优先停车。",
+  auto: "按照视觉指令巡航，遇障由共享主动避障层接管或停车。",
   mapping: "建图模式让 SLAM 链路接管环境感知，控制台显示实时状态。",
   navigation: "导航模式保留 Nav2 控制权，避免网页端抢占 /cmd_vel。",
   color_track: "颜色追踪读取 HSV 目标偏移量，形成视觉闭环。",

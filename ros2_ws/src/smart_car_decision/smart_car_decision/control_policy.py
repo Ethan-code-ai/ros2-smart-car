@@ -76,6 +76,7 @@ def decide_motion(
     manual_turn_speed=None,
     navigation_motion=None,
     has_recent_navigation=False,
+    apply_obstacle_stop=True,
 ):
     mode = normalize_mode(mode)
     detection = str(detection or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -86,7 +87,7 @@ def decide_motion(
     if mode in {"auto", "color_track", "object_follow", "mapping", "navigation"} and not has_recent_scan:
         return zero_motion()
     active_stop_distance = _mode_obstacle_stop_distance(mode, obstacle_stop_distance, mode_obstacle_stop_distances)
-    if active_stop_distance > 0.0 and front_distance <= active_stop_distance:
+    if apply_obstacle_stop and active_stop_distance > 0.0 and front_distance <= active_stop_distance:
         return zero_motion()
     speed_scale = clamp(float(speed_scale), 0.0, 1.0)
     if mode == "mapping":

@@ -3,7 +3,7 @@ import type { MapSnapshot, RadarPoint, RobotStatus } from "./robotApi";
 export const LIVE_ROBOT_ID = "r-001";
 export const MAPPING_SPEED_MAX = 50;
 export const MAPPING_SPEED_PRESETS = [15, 25, 35, 50];
-export const MODE_LABELS: Record<string, string> = { stop: "停止", manual: "手动驾驶", auto: "自动避障", mapping: "SLAM 建图", navigation: "导航", color_track: "颜色追踪", object_follow: "目标跟随" };
+export const MODE_LABELS: Record<string, string> = { stop: "停止", manual: "手动驾驶", auto: "自动巡航", mapping: "SLAM 建图", navigation: "导航", color_track: "颜色追踪", object_follow: "目标跟随" };
 export const COMMAND_LABELS: Record<string, string> = { forward: "前进", backward: "后退", left: "左移", right: "右移", turn_l: "左旋", turn_r: "右旋", stop: "停止" };
 export function percentToScale(percent: number, mapping = false) {
   return Math.max(15, Math.min(mapping ? MAPPING_SPEED_MAX : 100, Number.isFinite(percent) ? percent : 15)) / 100;

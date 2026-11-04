@@ -8,6 +8,7 @@ ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/'output/windows-app-20261020'
 sys.path.insert(0,str(ROOT/'desktop'))
 from insightrover_desktop.config import AppConfig
+from insightrover_desktop import VERSION
 
 
 def port():
@@ -75,6 +76,11 @@ def run(exe,installer=None):
                     headers={'Authorization':'Bearer '+login.json()['access_token']}
                     assert client.post('/api/v1/auth/login',json={'username':'admin','password':'admin123'}).status_code==401
                     assert client.get('/api/status').json()['mode']=='stop'
+                    assert client.get('/desktop/health').json()['version']==VERSION
+                    assert client.get('/api/avoidance').json()['supported'] is True
+                    pending=client.post('/api/avoidance',json={'enabled':False})
+                    assert pending.status_code==202 and pending.json()['confirmed'] is False
+                    assert client.get('/api/status').json()['avoidance']['settings']['enabled'] is False
                     assert client.get('/api/video?frame=true').content==b'fake-frame'
                     assert b'fixture' in client.get('/video_feed').content
                     assert client.post('/api/mapping/settings',json={'max_laser_range':.5}).json()['settings']['max_laser_range']==.5

@@ -1,6 +1,24 @@
 import type { CalibrationPair, NavigationConfig, NavigationPlan, NavigationState, Point, Pose } from "./labNavigation";
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 export type RadarPoint = { x: number; y: number; distance: number };
+export type AvoidanceSettings = { enabled: boolean; trigger_distance_m: number };
+export type VisionStatus = { supported: boolean; state: string; message: string; mobile_ready: boolean; inference_ms?: number; frame_age_ms?: number; detections: {label:string;confidence:number;passage?:string}[] };
+export type SearchStatus = { state:string; message:string; run_id:string|null; evidence?:{save_error?:string;event_id:string} };
+export type VisionSettings = {enabled:boolean;clutter_enabled:boolean;clutter_prompts:string[];imgsz:number};
+export type AvoidanceStatus = {
+  supported: boolean; confirmed: boolean; available: boolean;
+  settings: AvoidanceSettings; requested?: AvoidanceSettings | null;
+  state: string; reason: string; direction?: "left" | "right" | null;
+  front_clearance_m?: number | null; instance_id?: string;
+  build_id?: string;
+  scan_health?: {valid_ratio?:number;scan_rate_hz?:number|null;consecutive_healthy?:number};
+  sampling_gap_inferred?: {rays:number;distance_cap_min_m:number;distance_cap_max_m:number}|null;
+  missing_data_policy?: {mode:string;active?:boolean;device_proven?:boolean};
+  assumed_clear?: {kind:string;rays:number;distance_cap_m?:number;device_proven:boolean}|null;
+  blocking_point_m?: [number, number] | null;
+  coverage?: { kind: string; motion?: string };
+  last_stop_event?: { state: string; reason: string; timestamp?: number; mode?: string } | null;
+};
 export type LidarHealth = {
   ok: boolean; message: string; scan_age_sec: number | null; scan_rate_hz: number;
   valid_count: number; valid_ratio: number; frame_id: string;
@@ -49,6 +67,7 @@ export type RobotStatus = {
   battery?: number | null;
   mode: string; emergency_stop: boolean; front_distance: number | null; detection: string;
   motion_settings?: MotionMappingSettings;
+  avoidance?: AvoidanceStatus;
   manual_turn_speed?: number;
   mode_obstacle_stop_distances: Record<string, number>;
   color_target: ColorTarget | null; camera: { ok: boolean | null; message: string };
@@ -122,6 +141,14 @@ export function createRobotApi(fetchImpl: FetchLike = fetch) {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout)
   }).then((response) => readJson<T>(response));
   return {
+    getVision: () => fetchImpl('/api/vision/status', {cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>readJson<VisionStatus>(r)),
+    getVisionSettings: () => fetchImpl('/api/vision/settings', {cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>readJson<VisionSettings>(r)),
+    setVisionSettings: (value:Partial<VisionSettings>) => post<VisionSettings>('/api/vision/settings',value),
+    getSearch: () => fetchImpl('/api/search', {cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>readJson<SearchStatus>(r)),
+    startSearch: (value:unknown) => post<SearchStatus>('/api/search/start',value,20000),
+    searchAction: (run_id:string,action:string) => post<SearchStatus>('/api/search/action',{run_id,action}),
+    getAvoidance: () => fetchImpl('/api/avoidance', { cache: 'no-store', signal: AbortSignal.timeout(5000) }).then(r => readJson<AvoidanceStatus>(r)),
+    setAvoidance: (changes: Partial<AvoidanceSettings>) => post<AvoidanceStatus>('/api/avoidance', changes),
     getNavigationRuntime: () => fetchImpl("/api/navigation/runtime", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then(r => readJson<NavigationRuntimeState>(r)),
     setInitialPose: (pose: Pose, asset_digest: string) => post<NavigationRuntimeState>("/api/navigation/initial-pose", { ...pose, asset_digest }),
     getNavigationTask: () => fetchImpl("/api/navigation/task", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then(r => readJson<NavigationTaskState>(r)),

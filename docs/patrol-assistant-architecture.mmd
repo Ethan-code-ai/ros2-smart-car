@@ -1,0 +1,39 @@
+flowchart TB
+  subgraph PC[Windows 控制台 / 业务服务]
+    UI[智巡助手聊天与任务卡片]
+    API[助手 API：登录、会话与权限]
+    ORCH[单助手编排：理解、查资料、生成草案]
+    TOOLS[受限 Tool Registry：地点、路线、能力、任务状态]
+    CHECK[确定性校验：真实 ID、地图版本、能力与任务冲突]
+    CONFIRM[用户确认：绑定计划版本与有效期]
+    EXEC[持久化任务执行器：顺序执行、幂等与取消]
+    DB[(会话 / 计划 / 执行记录 / 审计)]
+    GATE[现有业务服务与 Robot Gateway]
+    STOP[停止快捷通道：不等待模型]
+    UI --> API --> ORCH
+    ORCH <--> TOOLS
+    ORCH --> CHECK --> CONFIRM --> EXEC --> GATE
+    API <--> DB
+    EXEC <--> DB
+    UI --> STOP --> GATE
+  end
+  LLM[外部 LLM API：只接收必要文本上下文]
+  ORCH <--> LLM
+  TOOLS --> GATE
+  subgraph CAR[Jetson 车端]
+    HTTP[现有 Web API + 能力查询 + 执行代际校验]
+    TASK[现有导航 / 巡逻 / 搜索任务状态机]
+    NAV[Nav2：定位与路线执行]
+    VISION[YOLOE‑11s：目标识别与证据]
+    CTRL[decision_controller：停车锁与雷达防撞]
+    BASE[唯一 cmd_vel 出口 → 底盘]
+    HTTP --> TASK
+    TASK --> NAV --> CTRL
+    TASK --> VISION --> CTRL
+    HTTP --> CTRL
+    CTRL --> BASE
+  end
+  GATE <--> HTTP
+  HTTP -.真实状态与结果.-> API
+  MCP[后续可选 MCP Adapter：复用同一工具注册与权限校验]
+  MCP -.不属于首版.-> TOOLS

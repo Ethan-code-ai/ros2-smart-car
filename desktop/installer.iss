@@ -5,7 +5,7 @@
   #define OutputDir "."
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.3.4"
+  #define AppVersion "0.3.11"
 #endif
 [Setup]
 AppId={{32704BFC-425A-42A1-A8CA-71395D422DAA}

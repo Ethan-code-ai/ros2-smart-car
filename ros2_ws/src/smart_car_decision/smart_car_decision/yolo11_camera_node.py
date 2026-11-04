@@ -78,7 +78,7 @@ class Yolo11CameraNode(Node):
         self.declare_parameter("camera_width", 640)
         self.declare_parameter("camera_height", 480)
         self.declare_parameter("camera_fps", 30.0)
-        self.declare_parameter("model_path", "yolo11s.pt")
+        self.declare_parameter("model_path", "~/.ros/insightrover/models/yoloe-11s-traffic.pt")
         self.declare_parameter("device", "0")
         self.declare_parameter("imgsz", 640)
         self.declare_parameter("confidence", 0.35)
@@ -235,12 +235,30 @@ class Yolo11CameraNode(Node):
     def process_frame(self):
         if not self._is_active_mode():
             return
-        if self.camera is None or not self.camera.isOpened():
+        if self.mode == 'auto':
+            self._close_camera()
+            try:
+                import urllib.request
+                import numpy as np
+                with urllib.request.urlopen('http://127.0.0.1:8080/api/video?frame=true&raw=true',timeout=.3) as response:
+                    sequence=response.headers.get('X-Frame-Sequence')
+                    if sequence==getattr(self,'shared_sequence',None):return
+                    if float(response.headers.get('X-Frame-Age-Ms','9999'))>500:return
+                    frame=self.cv2.imdecode(np.frombuffer(response.read(),np.uint8),self.cv2.IMREAD_COLOR)
+                    self.shared_sequence=sequence
+                ok=frame is not None
+            except Exception:
+                self._publish_command('stop')
+                return
+        elif self.camera is None or not self.camera.isOpened():
             self._try_reopen_camera()
             return
-
-        ok, frame = self.camera.read()
+        else:
+            ok, frame = self.camera.read()
         if not ok:
+            if self.mode == 'auto':
+                self._publish_command('stop')
+                return
             self.get_logger().warning(
                 "Failed to read camera frame; will retry camera source",
                 throttle_duration_sec=2.0,
@@ -270,6 +288,7 @@ class Yolo11CameraNode(Node):
             )
             command, offset = self._choose_command(frame, results[0])
         command = self.command_filter.update(command, now=time.monotonic())
+        self._target_visible = self.mode == 'object_follow' and offset is not None
         tracking_status = self.person_selector.status(now=time.monotonic())
         self._publish_annotated_frame(results[0], tracking_status)
         if self.mode == "object_follow":
@@ -442,7 +461,9 @@ class Yolo11CameraNode(Node):
 
     def _publish_tracking_status(self, now):
         msg = String()
-        msg.data = json.dumps(self.person_selector.status(now=now), ensure_ascii=False)
+        status = self.person_selector.status(now=now)
+        status['visible'] = bool(getattr(self, '_target_visible', False))
+        msg.data = json.dumps(status, ensure_ascii=False)
         self.tracking_status_publisher.publish(msg)
 
     def _publish_annotated_frame(self, result, tracking_status=None):

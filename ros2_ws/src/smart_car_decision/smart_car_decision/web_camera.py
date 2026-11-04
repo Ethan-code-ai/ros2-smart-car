@@ -7,7 +7,7 @@ import time
 class CameraStream:
     """Continuously drain capture; share one newest JPEG without a frame queue."""
 
-    blocked_modes = {"auto", "object_follow", "color_track"}
+    blocked_modes = {"object_follow", "color_track"}
 
     def __init__(self, source, cv2_module, mode_provider, capture_fps=None, target_fps=12,
                  camera_fourcc="MJPG", camera_width=1280, camera_height=720,

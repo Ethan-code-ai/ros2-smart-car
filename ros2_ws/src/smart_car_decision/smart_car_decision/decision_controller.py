@@ -1,17 +1,29 @@
 import json
 import math
 import time
+from pathlib import Path
+from uuid import uuid4
 
 import rclpy
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
+from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
+from tf2_ros import Buffer, TransformListener, ExtrapolationException
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, Float32, String
 
 from .common import front_range_statistic, normalize_command
 from .control_policy import decide_motion, normalize_mode
 from .mapping_settings import turn_speed
+from .avoidance import AvoidanceController, ScanEvidence, ZERO, wrap
+from .avoidance_settings import AvoidanceSettings, validate_settings
+from .footprint import Rectangle
+from .search_control import SearchGate
+from .scan_provenance import visibility
+from .scan_health import ScanHealth
 
 
 class DecisionController(Node):
@@ -34,11 +46,66 @@ class DecisionController(Node):
         self.manual_turn_speed = .15
         self.navigation_motion = None
         self.last_navigation_time = 0.0
+        self.operator_stop = True
+        self.follow_targets = {'color_track': (False, 0.0), 'object_follow': (False, 0.0)}
+        self.avoidance = AvoidanceController(float(self.get_parameter('avoidance_robot_radius').value),
+                                            motion_model=self.get_parameter('avoidance_motion_model').value)
+        self.assume_missing_clear=bool(self.get_parameter('avoidance_assume_missing_clear').value)
+        self.avoidance_config = AvoidanceSettings(self.get_parameter('avoidance_settings_path').value)
+        self.avoidance.settings = dict(self.avoidance_config.value)
+        self.self_returns=[]
+        self.footprint_error=None
+        calibration_path=Path(self.get_parameter('avoidance_footprint_path').value).expanduser()
+        if calibration_path.exists():
+            try:
+                calibration=json.loads(calibration_path.read_text())
+                f=Rectangle(**calibration['rectangle'])
+                if f.radius>self.avoidance.radius:raise ValueError('Measured body exceeds navigation bounding radius')
+                points=calibration.get('self_returns',[])
+                if not all(len(p)==2 and all(math.isfinite(v) for v in p) and f.clearance(p)<=0 for p in points):
+                    raise ValueError('Invalid calibrated body returns')
+                self.avoidance.footprint=f
+                self.self_returns=points
+            except Exception as exc:
+                self.footprint_error=str(exc)
+                self.avoidance_config.error='车体标定配置无效：'+str(exc)
+        self.avoidance_confirmed = False
+        self.avoidance_request_id = None
+        self.avoidance_instance_id = uuid4().hex
+        self.scan_evidence = None
+        self.evidence_pose = None
+        self.evidence_at = 0.0
+        self.pose = None
+        self.odom_at = 0.0
+        self.actual_speed = 0.0
+        self.search_gate = SearchGate()
+        self.scan_packets = {}
+        self.scan_health = ScanHealth()
+        self.scan_profile = {}
+        profile_path = calibration_path.parent/'scan-no-return-profile.json'
+        if profile_path.exists():
+            try:
+                self.scan_profile=json.loads(profile_path.read_text())
+            except (ValueError,OSError):
+                self.scan_profile={}
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.publisher = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.create_subscription(LaserScan, self.scan_topic, self.on_scan, 10)
+        self.search_status_pub = self.create_publisher(String, '/robot/search/status', 10)
+        self.create_subscription(String, '/robot/search/control', self.on_search_control, 10)
+        self.create_timer(.1, self.publish_search_status)
+        self.create_subscription(LaserScan, self.scan_topic, self.on_scan, qos_profile_sensor_data)
+        self.create_subscription(String, '/scan/provenance', self.on_scan_provenance, 10)
+        self.create_subscription(Odometry, '/odom', self.on_avoidance_odom, qos_profile_sensor_data)
+        durable = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.avoidance_status_pub = self.create_publisher(String, '/robot/avoidance/status', durable)
+        self.create_subscription(String, '/robot/avoidance/config', self.on_avoidance_config, durable)
+        self.create_timer(.2, self.publish_avoidance_status)
         self.create_subscription(String, self.detection_topic, self.on_detection, 10)
         self.create_subscription(Float32, self.lane_offset_topic, self.on_lane_offset, 10)
+        self.create_subscription(String, '/vision/color_target', self.on_color_target, 10)
+        self.create_subscription(String, '/vision/tracking_target', self.on_tracking_target, 10)
         self.create_subscription(String, self.manual_cmd_topic, self.on_manual_command, 10)
         self.create_subscription(String, self.mode_topic, self.on_mode, 10)
         self.create_subscription(Bool, self.emergency_stop_topic, self.on_emergency_stop, 10)
@@ -79,6 +146,11 @@ class DecisionController(Node):
         self.declare_parameter("lane_timeout_sec", 0.5)
         self.declare_parameter("scan_timeout_sec", 0.6)
         self.declare_parameter("publish_rate_hz", 20.0)
+        self.declare_parameter('avoidance_robot_radius', .25)
+        self.declare_parameter('avoidance_motion_model', 'holonomic')
+        self.declare_parameter('avoidance_assume_missing_clear', True)
+        self.declare_parameter('avoidance_settings_path', '~/.ros/insightrover/obstacle-avoidance.json')
+        self.declare_parameter('avoidance_footprint_path', '~/.ros/insightrover/avoidance-footprint.json')
 
     def _load_parameters(self):
         self.scan_topic = self.get_parameter("scan_topic").value
@@ -130,6 +202,9 @@ class DecisionController(Node):
         return distances
 
     def on_scan(self, scan):
+        self._latest_raw_scan=scan
+        previous=(self.scan_evidence,self.evidence_at,self.evidence_pose)
+        self._pending_tf_scan=None
         self.front_distance = front_range_statistic(
             scan,
             center_angle_rad=self.front_center,
@@ -137,6 +212,145 @@ class DecisionController(Node):
             percentile=self.front_distance_percentile,
         )
         self.last_scan_time = time.monotonic()
+        self.scan_evidence = None
+        try:
+            if getattr(self,'footprint_error',None):return
+            stamp = Time.from_msg(scan.header.stamp)
+            age = (self.get_clock().now() - stamp).nanoseconds / 1e9
+            if not 0 <= age <= .6:
+                return
+            transform = self.tf_buffer.lookup_transform('base_link', scan.header.frame_id, stamp).transform
+            q = transform.rotation
+            values = (transform.translation.x, transform.translation.y, q.x, q.y, q.z, q.w)
+            if (not all(math.isfinite(v) for v in values) or abs(q.x) > .08 or abs(q.y) > .08
+                    or abs(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w-1) > .01):
+                return
+            yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+            odom_tf = self.tf_buffer.lookup_transform('odom', 'base_link', stamp).transform
+            oq = odom_tf.rotation
+            self.evidence_pose = (odom_tf.translation.x, odom_tf.translation.y,
+                                  math.atan2(2*(oq.w*oq.z+oq.x*oq.y), 1-2*(oq.y*oq.y+oq.z*oq.z)))
+            if not all(math.isfinite(v) for v in self.evidence_pose) or abs(oq.x*oq.x+oq.y*oq.y+oq.z*oq.z+oq.w*oq.w-1) > .01:
+                return
+            key=(scan.header.stamp.sec,scan.header.stamp.nanosec)
+            packet=getattr(self,'scan_packets',{}).get(key)
+            clear, summary=visibility(scan,packet,getattr(self,'scan_profile',{}))
+            if not hasattr(self,'scan_health'):self.scan_health=ScanHealth()
+            health=self.scan_health.observe(scan,age)
+            matched=summary.get('source')=='driver_provenance'
+            assume=getattr(self,'assume_missing_clear',True)
+            active=bool(assume and matched and packet.get('healthy') is True and health['ready_for_inference'])
+            self.scan_evidence = ScanEvidence(scan, (transform.translation.x, transform.translation.y, yaw),
+                                              getattr(self,'self_returns',()),self.avoidance.footprint,
+                                              .01 if matched and health['ready_for_inference'] else 0.,
+                                              packet['kinds'] if matched else None,
+                                              assume_missing_clear=active)
+            self.avoidance.missing_data_policy={'mode':'assume_clear' if assume else 'observed_only',
+                                                'active':active,'device_proven':False}
+            self.avoidance.assumed_clear=self.scan_evidence.assumed_clear
+            self.avoidance.scan_provenance=summary
+            self.avoidance.scan_health=health
+            self.avoidance.sampling_gap_inferred=self.scan_evidence.sampling_gap_inferred
+            if clear:
+                ranges=list(self.scan_evidence.visibility_ranges)
+                for index,distance in clear.items():
+                    ranges[index]=distance
+                self.scan_evidence._visibility=ranges
+            self.evidence_at = time.monotonic() - age
+        except Exception as exc:
+            # The scan can arrive a few milliseconds before its exact odom TF.
+            # Retry that same stamped scan; never substitute a latest-time TF
+            # or extend the original evidence's expiry while waiting.
+            if isinstance(exc, ExtrapolationException) and 'future' in str(exc).lower():
+                self._pending_tf_scan=scan
+                if previous[0] is not None and 0 <= time.monotonic()-previous[1] <= .6:
+                    self.scan_evidence,self.evidence_at,self.evidence_pose=previous
+            else:
+                self.scan_evidence = None
+
+    def on_avoidance_odom(self, msg):
+        try:
+            stamp = Time.from_msg(msg.header.stamp)
+            age = (self.get_clock().now() - stamp).nanoseconds / 1e9
+            if not 0 <= age <= .5 or msg.header.frame_id != 'odom':
+                self.pose = None
+                return
+            # Use this odometry's pose, not a simultaneous odom->base TF that
+            # may still be in transit when the odometry callback fires.
+            p, q = msg.pose.pose.position, msg.pose.pose.orientation
+            if abs(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w-1) > .01:
+                raise ValueError('Invalid odometry orientation')
+            yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+            if msg.child_frame_id == 'base_link':
+                tx = ty = rotation = 0.0
+            else:
+                tf = self.tf_buffer.lookup_transform(msg.child_frame_id, 'base_link', stamp).transform
+                cq = tf.rotation
+                tx, ty = tf.translation.x, tf.translation.y
+                rotation = math.atan2(2*(cq.w*cq.z+cq.x*cq.y), 1-2*(cq.y*cq.y+cq.z*cq.z))
+            pose = (p.x+math.cos(yaw)*tx-math.sin(yaw)*ty,
+                    p.y+math.sin(yaw)*tx+math.cos(yaw)*ty, wrap(yaw+rotation))
+            speed = math.hypot(msg.twist.twist.linear.x, msg.twist.twist.linear.y) + abs(msg.twist.twist.angular.z) * math.hypot(tx, ty)
+            self.actual_angular_speed=msg.twist.twist.angular.z
+            if not all(math.isfinite(v) for v in (*pose, speed, msg.twist.twist.angular.z)):
+                raise ValueError('Non-finite odometry')
+            if self.pose is not None and (math.hypot(pose[0]-self.pose[0], pose[1]-self.pose[1]) > .20 or abs(wrap(pose[2]-self.pose[2])) > .5):
+                self.avoidance.stop('sensor_fault', '里程计发生跳变，请停止后重试')
+            self.pose, self.actual_speed = pose, speed
+            self.actual_angular = msg.twist.twist.angular.z
+            self.odom_at = time.monotonic() - age
+        except Exception:
+            self.pose = None
+
+    def on_avoidance_config(self, msg):
+        try:
+            request = json.loads(msg.data)
+            settings = validate_settings(request['settings'])
+            request_id = request['request_id']
+            radius = request.get('robot_radius_m')
+            if isinstance(radius, bool) or not isinstance(radius, (int, float)) or not math.isfinite(radius) or not .01 <= radius <= 2.0:
+                raise ValueError('Invalid shared robot radius')
+            if self.avoidance.footprint and radius<self.avoidance.footprint.radius:
+                raise ValueError('Navigation bounding radius is smaller than measured body')
+            if not isinstance(request_id, str) or not request_id:
+                raise ValueError('Invalid request ID')
+            if (self.avoidance_confirmed and not self.avoidance_config.error and request_id == self.avoidance_request_id
+                    and settings == self.avoidance.settings and radius == self.avoidance.radius):
+                return
+            if self.mode != 'stop' or self.pose is None or time.monotonic()-self.odom_at > .5 or self.actual_speed > .01 or abs(self.actual_angular) > .03:
+                return
+            if settings != self.avoidance_config.value or self.avoidance_config.error:
+                self.avoidance_config.save(settings)
+            self.avoidance.settings = settings
+            self.avoidance.radius = radius
+            self.avoidance.reset()
+            self.avoidance_confirmed = True
+            self.avoidance_request_id = request_id
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            self.avoidance_confirmed = False
+            self.avoidance_config.error = '避障设置未生效：' + str(exc)
+            self.avoidance.stop('sensor_fault', str(exc))
+
+    def publish_avoidance_status(self):
+        now = time.monotonic()
+        payload = {**self.avoidance.status(), 'settings': self.avoidance.settings,
+                   'request_id': self.avoidance_request_id, 'instance_id': self.avoidance_instance_id,
+                   'robot_radius_m': self.avoidance.radius,
+                   'confirmed': self.avoidance_confirmed and not self.avoidance_config.error,
+                   'available': self.scan_evidence is not None and now-self.evidence_at <= .6 and self.pose is not None and now-self.odom_at <= .5}
+        if self.avoidance_config.error:
+            payload.update(state='sensor_fault', reason=self.avoidance_config.error)
+        transition = (payload['state'], payload['reason'])
+        if transition != getattr(self, '_last_avoidance_transition', None):
+            self.get_logger().info('avoidance_transition ' + json.dumps({
+                'state': payload['state'], 'reason': payload['reason'],
+                'build_id': payload.get('build_id'),
+                'requested_motion': payload.get('requested_motion'),
+                'applied_motion': payload.get('applied_motion')}, ensure_ascii=False))
+            self._last_avoidance_transition = transition
+        message = String()
+        message.data = json.dumps(payload, allow_nan=False)
+        self.avoidance_status_pub.publish(message)
 
     def on_detection(self, msg):
         self.detection = normalize_command(msg.data)
@@ -146,14 +360,45 @@ class DecisionController(Node):
         self.lane_offset = float(msg.data)
         self.last_lane_time = time.monotonic()
 
+    def update_follow_target(self, mode, valid):
+        self.follow_targets[mode] = (valid, time.monotonic())
+        if self.mode == mode and not valid:
+            self.last_lane_time = 0.0
+            self.avoidance.reset()
+
+    def on_color_target(self, msg):
+        try:
+            value = json.loads(msg.data)
+            self.update_follow_target('color_track', value.get('found') is True)
+        except (ValueError, TypeError, AttributeError):
+            self.update_follow_target('color_track', False)
+
+    def on_tracking_target(self, msg):
+        try:
+            value = json.loads(msg.data)
+            self.update_follow_target('object_follow', value.get('locked') is True and value.get('visible') is True)
+        except (ValueError, TypeError, AttributeError):
+            self.update_follow_target('object_follow', False)
+
     def on_manual_command(self, msg):
-        self.manual_command = normalize_command(msg.data)
+        command = normalize_command(msg.data)
+        if command != self.manual_command:
+            self.avoidance.reset()
+        self.manual_command = command
         self.last_manual_time = time.monotonic()
+        self.operator_stop = self.manual_command == 'stop'
+        if self.operator_stop:
+            self.avoidance.reset()
 
     def on_mode(self, msg):
         if self.mode != normalize_mode(msg.data):
             self.navigation_motion = None
             self.last_navigation_time = 0.0
+            self.operator_stop = False
+            self.avoidance.reset()
+            if normalize_mode(msg.data) in self.follow_targets:
+                self.follow_targets[normalize_mode(msg.data)] = (False, 0.0)
+                self.last_lane_time = 0.0
         self.mode = normalize_mode(msg.data)
 
     def on_navigation_command(self, msg):
@@ -178,7 +423,13 @@ class DecisionController(Node):
         self.mode_obstacle_stop_distances = self._parse_mode_obstacle_stop_distances(msg.data)
 
     def control_loop(self):
+        pending=getattr(self,'_pending_tf_scan',None)
+        if pending is not None:self.on_scan(pending)
         now = time.monotonic()
+        period=now-getattr(self,'_previous_control_at',now)
+        self._previous_control_at=now
+        self.control_period_ms=period*1000
+        self.control_overruns=getattr(self,'control_overruns',0)+int(period>2./self.publish_rate_hz)
         twist = Twist()
         motion = decide_motion(
             mode=self.mode,
@@ -203,11 +454,58 @@ class DecisionController(Node):
             manual_turn_speed=self.manual_turn_speed,
             navigation_motion=self.navigation_motion,
             has_recent_navigation=now - self.last_navigation_time <= self.navigation_timeout_sec,
+            apply_obstacle_stop=False,
         )
+        gate = getattr(self, 'search_gate', None)
+        if self.operator_stop or self.emergency_stop or (gate is not None and gate.blocked(now)):
+            motion = dict(ZERO)
+        if self.mode in self.follow_targets:
+            valid, observed_at = self.follow_targets[self.mode]
+            if not valid or now-observed_at > .5:
+                motion = dict(ZERO)
+        evidence = self.scan_evidence
+        if any(motion.values()) and evidence is not None and self.pose is not None and self.evidence_pose is not None:
+            tx, ty = self.avoidance.local(self.evidence_pose[:2], self.pose)
+            evidence = evidence.reframe(tx, ty, wrap(self.evidence_pose[2]-self.pose[2]))
+        motion = self.avoidance.step(motion, mode=self.mode, now=now,
+                    evidence=evidence, scan_age=now-self.evidence_at,
+                    pose=self.pose, odom_age=now-self.odom_at,
+                    confirmed=self.avoidance_confirmed and not self.avoidance_config.error,
+                    legacy_stop=self.mode_obstacle_stop_distances.get(self.mode, self.obstacle_stop_distance),
+                    actual_speed=self.actual_speed)
         twist.linear.x = motion["linear_x"]
         twist.linear.y = motion["linear_y"]
         twist.angular.z = motion["angular_z"]
         self.publisher.publish(twist)
+
+    def on_search_control(self, message):
+        try:
+            value = json.loads(message.data)
+            stationary = (self.mode == 'stop' and time.monotonic()-self.odom_at < .5
+                          and self.actual_speed < .01 and abs(getattr(self,'actual_angular_speed',1.)) < .02)
+            self.search_gate.update(value, time.monotonic(), stationary)
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+    def on_scan_provenance(self, message):
+        try:
+            value=json.loads(message.data)
+            key=tuple(value['stamp'])
+            if len(key)!=2 or not all(type(v) is int for v in key):return
+            self.scan_packets[key]=value
+            while len(self.scan_packets)>4:self.scan_packets.pop(next(iter(self.scan_packets)))
+            scan=getattr(self,'_latest_raw_scan',None)
+            if scan is not None and key==(scan.header.stamp.sec,scan.header.stamp.nanosec):
+                self.on_scan(scan)
+        except (ValueError,TypeError,KeyError):
+            pass
+
+    def publish_search_status(self):
+        message = String()
+        message.data = json.dumps({**self.search_gate.snapshot(time.monotonic()),
+            'control_period_ms':getattr(self,'control_period_ms',0.),
+            'control_overruns':getattr(self,'control_overruns',0)}, allow_nan=False)
+        self.search_status_pub.publish(message)
 
     def apply_detection_rule(self, twist):
         if self.detection in {"red_light", "shutdown", "stop"}:

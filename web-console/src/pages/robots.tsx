@@ -15,7 +15,7 @@ import type { Robot, RobotHealth, Task, Incident } from "../types/domain";
 
 const healthLabel: Record<RobotHealth, string> = { online: "在线", offline: "离线", degraded: "退化", charging: "充电中" };
 const healthTone: Record<RobotHealth, "success" | "neutral" | "warning" | "info"> = { online: "success", offline: "neutral", degraded: "warning", charging: "info" };
-const modeLabel: Record<string, string> = { stop: "停止", manual: "手动", auto: "自动避障", mapping: "建图", navigation: "导航", color_track: "颜色追踪", object_follow: "目标跟随", patrol: "巡检", transport: "运输" };
+const modeLabel: Record<string, string> = { stop: "停止", manual: "手动", auto: "自动巡航", mapping: "建图", navigation: "导航", color_track: "颜色追踪", object_follow: "目标跟随", patrol: "巡检", transport: "运输" };
 
 export function RobotsPage() {
   const { data, loading } = useData(() => adapters.listRobots());

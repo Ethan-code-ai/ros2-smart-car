@@ -2,7 +2,7 @@ import threading
 import time
 
 
-CAMERA_OWNER_MODES = {"auto", "object_follow", "color_track"}
+CAMERA_OWNER_MODES = {"object_follow", "color_track"}
 
 
 def should_release_camera_for_mode(mode):

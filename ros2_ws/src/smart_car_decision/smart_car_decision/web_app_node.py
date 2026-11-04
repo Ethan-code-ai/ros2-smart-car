@@ -23,6 +23,7 @@ from .web_video import AnnotatedFrameStore, should_release_camera_for_mode
 from .web_state import RobotStateStore, normalize_tracking_target_request
 from .navigation_config import NavigationConfigStore
 from .navigation_map import NavigationMapStore
+from .avoidance_settings import AvoidanceService
 
 
 class WebAppNode(Node):
@@ -58,8 +59,13 @@ class WebAppNode(Node):
         self.declare_parameter('safety_config_path', '~/.ros/insightrover/safety-vision.json')
         self.declare_parameter('safety_outbox_path', '~/.ros/insightrover/safety-events.sqlite3')
         self.declare_parameter('motion_mapping_settings_path', '~/.ros/insightrover/motion-mapping.json')
+        self.declare_parameter('avoidance_settings_path', '~/.ros/insightrover/obstacle-avoidance.json')
         self.declare_parameter('mapping_logs_directory', '~/.ros/insightrover/mapping_logs')
         self.safety_vision = None
+        self.vision_service = None
+        self.search_ack = {}
+        self.search_control_pub = self.create_publisher(String, '/robot/search/control', 10)
+        self.create_subscription(String, '/robot/search/status', self.on_search_status, 10)
 
         self.store = RobotStateStore()
         self.annotated_frames = AnnotatedFrameStore(max_age_sec=1.5)
@@ -88,6 +94,12 @@ class WebAppNode(Node):
         turn.data = self.motion_settings.snapshot()['turn_speed']
         self.turn_speed_pub.publish(turn)
         self.mode_obstacle_stop_distance_pub = self.create_publisher(String, self.get_parameter("mode_obstacle_stop_distance_topic").value, 10)
+        self.avoidance_config_pub = self.create_publisher(String, '/robot/avoidance/config',
+                                     QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.avoidance_service = AvoidanceService(self, self.get_parameter('avoidance_settings_path').value, self.publish_avoidance_config)
+        self.create_subscription(String, '/robot/avoidance/status', self.on_avoidance_status,
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.create_timer(.5, self.avoidance_service.transmit)
         self.color_config_pub = self.create_publisher(String, self.get_parameter("color_config_topic").value, 10)
         self.tracking_target_pub = self.create_publisher(String, self.get_parameter("tracking_target_set_topic").value, 10)
         self.patrol_task_pub = self.create_publisher(String, self.get_parameter("patrol_task_topic").value, 10)
@@ -169,6 +181,28 @@ class WebAppNode(Node):
         self.pose_debug_log.append_status(snapshot)
         self.mapping_restart.observe_status(snapshot)
 
+    def publish_avoidance_config(self, value):
+        message = String()
+        message.data = json.dumps(value, allow_nan=False)
+        self.avoidance_config_pub.publish(message)
+
+    def publish_search_control(self, value):
+        message=String(); message.data=json.dumps(value,allow_nan=False)
+        self.search_control_pub.publish(message)
+
+    def on_search_status(self, message):
+        try:
+            self.search_ack=json.loads(message.data)
+            self.search_ack['received_at']=time.monotonic()
+        except (ValueError,TypeError):
+            pass
+
+    def on_avoidance_status(self, message):
+        try:
+            self.avoidance_service.observe(json.loads(message.data))
+        except (ValueError, TypeError):
+            pass
+
     def on_task_odom(self, msg):
         if self.navigation_tasks:
             p = msg.pose.pose.position
@@ -176,6 +210,20 @@ class WebAppNode(Node):
             self.navigation_tasks.observe_odometry(p.x, p.y, stamp)
 
     def on_safety_scan(self, msg):
+        if self.vision_service:
+            import math
+            from rclpy.time import Time
+            try:
+                stamp=Time.from_msg(msg.header.stamp)
+                tf=self.safety_tf_buffer.lookup_transform('base_link',msg.header.frame_id,stamp).transform
+                q=tf.rotation
+                yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+                points=[(tf.translation.x+d*math.cos(msg.angle_min+i*msg.angle_increment+yaw),
+                         tf.translation.y+d*math.sin(msg.angle_min+i*msg.angle_increment+yaw),tf.translation.z)
+                        for i,d in enumerate(msg.ranges) if math.isfinite(d) and msg.range_min<d<msg.range_max]
+                self.vision_service.scan=(points,msg.header.stamp.sec+msg.header.stamp.nanosec/1e9)
+            except Exception:
+                self.vision_service.scan=([],0.)
         if not self.safety_vision:
             return
         import math
@@ -257,6 +305,8 @@ class WebAppNode(Node):
                     self.navigation_map_pub.publish(message)
 
     def set_mode(self, mode):
+        if mode != 'stop' and not self.avoidance_service.snapshot()['confirmed']:
+            return self.set_mode('stop')
         previous = self.store.snapshot().get("mode")
         mode = self.store.set_mode(mode)
         if should_release_camera_for_mode(mode) and self.camera_stream is not None:
@@ -374,6 +424,11 @@ class WebAppNode(Node):
             stream_width=int(self.get_parameter("video_stream_width").value),
         )
         node.camera_stream = camera
+        from .vision_service import VisionService
+        try:
+            node.vision_service=VisionService(node,camera,'~/.ros/insightrover')
+        except (ValueError,OSError) as exc:
+            self.get_logger().error(f'YOLOE 视觉服务不可用：{exc}')
         from .safety_vision import SafetyVisionWorker
         try:
             node.safety_vision = SafetyVisionWorker(node, camera, self.get_parameter('safety_config_path').value,
@@ -450,6 +505,8 @@ def main():
     finally:
         logger.info("车端 Web Node 退出")
         try:
+            if node.vision_service:
+                node.vision_service.close()
             if node.safety_vision:
                 node.safety_vision.close()
             if node.camera_stream is not None:

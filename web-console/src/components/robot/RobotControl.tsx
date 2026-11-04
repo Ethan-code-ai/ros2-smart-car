@@ -16,7 +16,7 @@ type Props = {
 
 const QUICK_MODES = [
   { id: "stop", label: "停止", icon: CircleStop },
-  { id: "auto", label: "自动避障", icon: Route },
+  { id: "auto", label: "自动巡航", icon: Route },
   { id: "navigation", label: "导航", icon: Navigation },
   { id: "manual", label: "手动", icon: Gamepad2 },
 ];

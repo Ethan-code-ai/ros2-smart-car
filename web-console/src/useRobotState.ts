@@ -49,6 +49,7 @@ export function useRobotState() {
   return {
     status, connection, error,
     setMode: (mode: string) => run(() => api.setMode(mode), (v) => setStatus((s) => ({ ...s, mode: v.mode }))),
+    setAvoidance: (changes: Partial<import('./robotApi').AvoidanceSettings>) => run(() => api.setAvoidance(changes), (v) => setStatus(s => ({ ...s, avoidance: v }))),
     sendCommand: (command: string) => run(() => api.sendCommand(command), (v) => setStatus((s) => ({ ...s, last_command: v.command }))),
     setEmergencyStop: (enabled: boolean) => run(() => api.setEmergencyStop(enabled), (v) => setStatus((s) => ({ ...s, emergency_stop: v.emergency_stop, mode: v.emergency_stop ? "stop" : s.mode }))),
     setSpeed: (scale: number) => run(() => api.setSpeed(scale), (v) => setStatus((s) => ({ ...s, speed_scale: v.speed_scale }))),

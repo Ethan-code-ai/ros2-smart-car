@@ -36,7 +36,7 @@ def ingest_event(db, robot, event, storage=None):
         # This ID was committed only after its image was saved.
         return existing
     category = event['type']
-    if category not in {'smoke_fire', 'fallen_person', 'blocked_passage'}:
+    if category not in {'smoke_fire', 'fallen_person', 'blocked_passage', 'suspected_clutter', 'target_found'}:
         raise ValueError('未知异常类型')
     occurred = datetime.fromisoformat(event['occurred_at'].replace('Z', '+00:00'))
     if occurred.tzinfo is None:
@@ -51,7 +51,9 @@ def ingest_event(db, robot, event, storage=None):
         image.verify()
     evidence = event.get('evidence') or {}
     serialized = json.dumps({**evidence, 'source_event_id': event_id, 'run_id': event.get('run_id'),
-                             'pose': event.get('pose'), 'map_key': event.get('map_key')}, ensure_ascii=False, allow_nan=False)
+                             'pose': event.get('pose'), 'map_key': event.get('map_key'),
+                             'model_sha256':event.get('model_sha256'),
+                             'position_kind':event.get('position_kind')}, ensure_ascii=False, allow_nan=False)
     if len(serialized) > 20000:
         raise ValueError('异常证据字段过大')
     pose = event.get('pose')
@@ -60,9 +62,14 @@ def ingest_event(db, robot, event, storage=None):
     location = f"地图{event.get('map_key', '')} ({pose['x']:.2f}, {pose['y']:.2f}) m" if localized else '定位不可用，需核对现场'
     key = f'incidents/{ident}/snapshot.jpg'
     (storage or get_storage()).put(key, jpeg, content_type='image/jpeg')
+    description=('YOLOE 持续识别到现场物品；占道未确认，请结合图片人工核实。'
+                 if category=='suspected_clutter' else
+                 '车端目标搜索记录；位置为车辆位置，不是目标坐标。'
+                 if category=='target_found' else
+                 '车端专项识别与持续确认产生；请查看现场证据并人工核实。')
     item = Incident(id=ident, type=category, severity='critical' if category == 'smoke_fire' else 'warning',
                     robot_id=robot.id, task_id=event.get('task_id'), title=str(event.get('title') or '巡检发现异常')[:255],
-                    description='车端专项识别与持续确认产生；请查看现场证据并人工核实。', location=location[:255],
+                    description=description, location=location[:255],
                     media_keys=json.dumps([key]), image_url=f'/api/v1/media/object/{key}', evidence=serialized,
                     occurred_at=occurred.astimezone(timezone.utc))
     db.add(item)

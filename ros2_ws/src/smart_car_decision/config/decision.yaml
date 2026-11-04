@@ -26,6 +26,8 @@ decision_controller:
     lane_timeout_sec: 0.5
     scan_timeout_sec: 0.6
     publish_rate_hz: 20.0
+    avoidance_motion_model: holonomic
+    avoidance_assume_missing_clear: true
 
 laser_obstacle_monitor:
   ros__parameters:
@@ -50,13 +52,13 @@ yolo11_camera_node:
     camera_width: 640
     camera_height: 480
     camera_fps: 30.0
-    model_path: yolo11s.pt
+    model_path: ~/.ros/insightrover/models/yoloe-11s-traffic.pt
     device: "0"
     imgsz: 640
     confidence: 0.35
     tracking_confidence: 0.1
     tracker_config: bytetrack.yaml
-    inference_rate_hz: 10.0
+    inference_rate_hz: 5.0
     detection_topic: /vision/detection
     object_offset_topic: /vision/object_offset
     tracking_target_topic: /vision/tracking_target

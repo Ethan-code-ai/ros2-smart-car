@@ -1,7 +1,7 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRobotApi, initialRobotStatus, normalizeRobotStatus, statusSocketUrl, type ConnectionState, type RobotStatus, type MappingSaveResult } from "../robotApi";
 import { LIVE_ROBOT_ID, percentToScale, canDrive, validThreshold } from "../liveControl";
-import type { MapSnapshot, MotionMappingSettings } from "../robotApi";
+import type { MapSnapshot, MotionMappingSettings, AvoidanceSettings } from "../robotApi";
 import { statusSocketTimedOut } from "../statusConnection";
 import { MapSessionGate, startMapPolling, captureInitialMapYaw } from "../mapSession";
 import { businessApi, getBusinessSession, type SlamMapDraft } from "../services/businessApi";
@@ -141,6 +141,13 @@ function useSharedRobot() {
     if (!validThreshold(distance)) { setError("防撞距离必须为 0–5 米"); return false; }
     return (await perform(() => api.setModeObstacleStopDistance(mode, distance), `防撞距离已设置为 ${distance.toFixed(2)} m`)) !== null;
   }, [api, perform]);
+  const setAvoidance = useCallback(async (changes: Partial<AvoidanceSettings>) => {
+    window.dispatchEvent(new Event('robot-control-stop'));
+    if (statusRef.current.mode !== 'stop') { setError('请先切换停止模式，再修改主动避障'); return false; }
+    const result = await perform(() => api.setAvoidance(changes), '设置已发送，等待车端控制器确认');
+    if (result) updateStatus({ ...statusRef.current, avoidance: result });
+    return result !== null;
+  }, [api, perform, updateStatus]);
   const restartMapping = useCallback(async () => {
     window.dispatchEvent(new Event("robot-control-stop"));
     const s = statusRef.current;
@@ -167,7 +174,7 @@ function useSharedRobot() {
       yaml_path: String(result.metadata.vehicle_yaml_path || ""), pgm_path: String(result.metadata.vehicle_pgm_path || "") });
     return result !== null;
   }, [perform, sendCommand]);
-  return { status, connection, connectionError, error, message, pending: pending > 0, receivedAt, savedMap, mapSnapshot, mapError, mapStale: !!mapSnapshot && (!!mapError || connection !== "connected"), mapSessionKey, initialMapYaw, api, boundRobotId: LIVE_ROBOT_ID, sendCommand, setMode, setEmergencyStop, setSpeed, setMotionSettings, setModeObstacleStopDistance, restartMapping, saveMapping };
+  return { status, connection, connectionError, error, message, pending: pending > 0, receivedAt, savedMap, mapSnapshot, mapError, mapStale: !!mapSnapshot && (!!mapError || connection !== "connected"), mapSessionKey, initialMapYaw, api, boundRobotId: LIVE_ROBOT_ID, sendCommand, setMode, setEmergencyStop, setSpeed, setMotionSettings, setModeObstacleStopDistance, setAvoidance, restartMapping, saveMapping };
 }
 type RobotStream = ReturnType<typeof useSharedRobot>;
 const RobotContext = createContext<RobotStream | null>(null);

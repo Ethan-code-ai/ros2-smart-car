@@ -567,6 +567,14 @@ def create_app(
 
     def navigation_status_snapshot():
         snapshot = node.store.snapshot()
+        avoidance = getattr(node, 'avoidance_service', None)
+        if avoidance is not None:
+            snapshot['avoidance'] = avoidance.snapshot()
+        vision = getattr(node, 'vision_service', None)
+        if vision is not None:
+            snapshot['vision'] = vision.snapshot()
+            snapshot['search'] = vision.search_snapshot()
+            snapshot['search_control'] = getattr(node,'search_ack',{})
         settings = getattr(node, "motion_settings", None)
         if settings is not None:
             snapshot["motion_settings"] = settings.snapshot()
@@ -591,6 +599,74 @@ def create_app(
         code = 504 if isinstance(exc, TimeoutError) else 409 if isinstance(exc, RuntimeError) else 422
         return HTTPException(status_code=code, detail=str(exc))
 
+    @app.get('/api/avoidance')
+    def avoidance_status():
+        service = getattr(node, 'avoidance_service', None)
+        if service is None:
+            raise HTTPException(status_code=501, detail='车端不支持主动避障，请更新车端')
+        return service.snapshot()
+
+    def vision_component():
+        service=getattr(node,'vision_service',None)
+        if service is None:
+            raise HTTPException(501,'车端不支持 YOLOE 视觉搜索，请更新车端')
+        return service
+
+    @app.get('/api/vision/status')
+    def vision_status():
+        return vision_component().snapshot()
+
+    @app.get('/api/vision/settings')
+    def vision_settings():
+        return vision_component().settings()
+
+    @app.post('/api/vision/settings')
+    def set_vision_settings(payload:dict=Body(...)):
+        try:
+            return vision_component().configure(payload)
+        except (ValueError,TypeError,RuntimeError) as exc:
+            raise navigation_error(exc)
+
+    @app.get('/api/vision/events')
+    def vision_events():
+        return {'events':vision_component().outbox.pending()}
+
+    @app.get('/api/vision/frame')
+    def vision_frame():
+        frame=node.annotated_frames.latest()
+        if frame is None:raise HTTPException(503,'等待识别画面')
+        return Response(frame,media_type='image/jpeg',headers={'Cache-Control':'no-store'})
+
+    @app.get('/api/search')
+    def search_status():
+        return vision_component().search_snapshot()
+
+    @app.post('/api/search/start',status_code=202)
+    async def start_search(payload:dict=Body(...)):
+        try:
+            return await vision_component().start(payload)
+        except (ValueError,TypeError,RuntimeError,TimeoutError) as exc:
+            raise navigation_error(exc)
+
+    @app.post('/api/search/action')
+    async def search_action(payload:dict=Body(...)):
+        try:
+            return await vision_component().action(payload)
+        except (ValueError,TypeError,RuntimeError) as exc:
+            raise navigation_error(exc)
+
+    @app.post('/api/avoidance', status_code=202)
+    def avoidance_settings(payload: dict = Body(...)):
+        service = getattr(node, 'avoidance_service', None)
+        if service is None:
+            raise HTTPException(status_code=501, detail='车端不支持主动避障，请更新车端')
+        try:
+            return service.update(payload)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/navigation/status")
     def navigation_status():
         return navigation_status_snapshot()["navigation"]
@@ -603,9 +679,12 @@ def create_app(
     @app.get('/api/safety/events')
     def safety_events():
         worker = getattr(node, 'safety_vision', None)
-        if not worker:
+        vision = getattr(node, 'vision_service', None)
+        if not worker and not vision:
             raise HTTPException(503, '车端巡检识别未启动')
-        return {'events': worker.outbox.pending()}
+        events=worker.outbox.pending() if worker else []
+        if vision:events+=vision.outbox.pending()
+        return {'events': events[:20]}
 
     @app.get('/api/safety/corridors')
     def safety_corridors():
@@ -641,10 +720,12 @@ def create_app(
     @app.post('/api/safety/events/ack')
     def acknowledge_safety_events(payload: dict = Body(...)):
         worker = getattr(node, 'safety_vision', None)
-        if not worker:
+        vision = getattr(node, 'vision_service', None)
+        if not worker and not vision:
             raise HTTPException(503, '车端巡检识别未启动')
         try:
-            worker.outbox.acknowledge(payload.get('event_ids'))
+            if worker:worker.outbox.acknowledge(payload.get('event_ids'))
+            if vision:vision.outbox.acknowledge(payload.get('event_ids'))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         return {'ok': True}
@@ -773,7 +854,7 @@ def create_app(
         return snapshot
 
     @app.get("/api/video")
-    def video_info(frame: bool = False):
+    def video_info(frame: bool = False, raw: bool = False):
         if frame:
             if camera is None:
                 raise HTTPException(status_code=503, detail="camera is not available")
@@ -782,6 +863,10 @@ def create_app(
                 camera.close()
             source = annotated_stream if blocked else camera
             snapshot = source.frame_snapshot() if source is not None else None
+            vision=getattr(node,'vision_service',None)
+            if not raw and vision is not None and not blocked:
+                overlay=vision.frame_snapshot()
+                if overlay is not None:snapshot=overlay
             if snapshot is None:
                 raise HTTPException(status_code=503, detail="waiting for a fresh camera frame")
             return Response(content=snapshot["jpeg"], media_type="image/jpeg", headers={
@@ -1037,6 +1122,8 @@ def apply_control_request(node, request: dict) -> dict:
         bridge = getattr(node, "navigation", None)
         if value == "stop" and bridge and bridge.snapshot()["state"] in {"starting", "running"}:
             bridge.cancel("停止指令已取消导航")
+        if value == 'stop' and node.store.snapshot().get('mode') not in {'stop', 'manual', 'mapping'}:
+            _node_call(node, 'set_mode', 'stop')
         result = _node_call(node, "set_command", value)
         if value != "stop" and result == "stop":
             log_message(node, "warning", f"手动命令 {value} 被拒绝：当前模式不允许手动控制")

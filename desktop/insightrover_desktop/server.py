@@ -9,7 +9,7 @@ from fastapi import HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-CAR_PATH=re.compile(r'^(status|map|video|mode|command|emergency-stop|speed|mode-obstacle-stop-distance|mapping/[\w/-]+|navigation/[\w/-]+)$')
+CAR_PATH=re.compile(r'^(status|map|video|mode|command|emergency-stop|speed|avoidance|search(?:/[\w/-]+)?|vision/[\w/-]+|mode-obstacle-stop-distance|mapping/[\w/-]+|navigation/[\w/-]+)$')
 
 
 def initialize(config, admin=None):
@@ -45,6 +45,7 @@ def initialize(config, admin=None):
 
 
 def create_server(config, web_root, token, admin=None):
+    from . import VERSION
     initialize(config,admin)
     from app.main import app
     from app.db.session import SessionLocal
@@ -57,7 +58,7 @@ def create_server(config, web_root, token, admin=None):
 
     @app.get('/desktop/health')
     def health():
-        return {'status':'ready','version':'0.3.0','ip':config.value['ip']}
+        return {'status':'ready','version':VERSION,'ip':config.value['ip']}
 
     @app.post('/desktop/quit')
     def quit_server(request:Request):

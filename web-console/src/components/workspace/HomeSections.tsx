@@ -149,7 +149,7 @@ export function SystemOverviewPanel() {
 
 export function RobotStatusStrip({ robot, connected, mode, speed, distance }: { robot: Robot | undefined; connected: boolean; mode: string; speed: number; distance: number | null }) {
   if (!robot) return null;
-  const modeLabel: Record<string, string> = { stop: "停止", manual: "手动", auto: "自动避障", mapping: "建图", navigation: "导航", color_track: "颜色追踪", object_follow: "目标跟随", patrol: "巡检", transport: "运输" };
+  const modeLabel: Record<string, string> = { stop: "停止", manual: "手动", auto: "自动巡航", mapping: "建图", navigation: "导航", color_track: "颜色追踪", object_follow: "目标跟随", patrol: "巡检", transport: "运输" };
   return (
     <div className="robot-status-strip">
       <div className="strip-inner">

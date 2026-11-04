@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRobotStream } from "../../hooks/useRobotStream";
 import { LIVE_ROBOT_ID, MAPPING_SPEED_MAX, MAPPING_SPEED_PRESETS, MODE_LABELS, validThreshold } from "../../liveControl";
 import { MAPPING_RANGE_PRESETS, TURN_SPEED_PRESETS, validTurnSpeed } from "../../mappingSettings";
+import { AvoidanceSettingsPanel } from './AvoidanceSettingsPanel';
 export function MotionSettings({ robotId = LIVE_ROBOT_ID, compact = false, mappingControls = false }: {robotId?:string;compact?:boolean;mappingControls?:boolean}) {
   const robot = useRobotStream();
   const connected = robot.connection==="connected" && robotId===LIVE_ROBOT_ID;
@@ -24,6 +25,7 @@ export function MotionSettings({ robotId = LIVE_ROBOT_ID, compact = false, mappi
   useEffect(()=>setDistance(actual.toFixed(2)),[mode,actual]);
   const valid = distance.trim()!=="" && validThreshold(Number(distance));
   return <div className={compact ? "motion-settings compact" : "motion-settings"}>
+    <AvoidanceSettingsPanel connected={connected}/>
     <section className="motion-setting">
       <div className="setting-title"><Gauge size={16}/><strong>速度比例</strong><output>{speed}%</output></div>
       <input aria-label="速度比例" type="range" min={15} max={mapping?MAPPING_SPEED_MAX:100} step={1} value={Math.max(15,Math.min(mapping?MAPPING_SPEED_MAX:100,speed))} disabled={!connected||robot.pending} onChange={e=>setSpeed(Number(e.target.value))}/>
@@ -48,8 +50,8 @@ export function MotionSettings({ robotId = LIVE_ROBOT_ID, compact = false, mappi
       <div className="setting-title"><ShieldCheck size={16}/><strong>前方防撞阈值</strong><span>m</span></div>
       <label className="setting-mode"><span>适用模式</span><select aria-label="防撞适用模式" value={mode} disabled={!connected||robot.pending} onChange={e=>setMode(e.target.value)}>{Object.entries(MODE_LABELS).filter(([id])=>id!=="stop").map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
       <div className="threshold-editor"><input aria-label="防撞阈值滑块" type="range" min={0} max={5} step={0.05} value={valid?Number(distance):actual} disabled={!connected||robot.pending} onChange={e=>setDistance(Number(e.target.value).toFixed(2))}/><input aria-label="防撞阈值" type="number" min={0} max={5} step={0.05} value={distance} disabled={!connected||robot.pending} onChange={e=>setDistance(e.target.value)}/><button type="button" className="setting-apply" disabled={!connected||robot.pending||!valid} onClick={()=>void robot.setModeObstacleStopDistance(mode,Number(distance))}>应用阈值</button></div>
-      <p className="live-helper">{!connected?"已生效：—（等待实车状态）":!valid?"请输入 0–5 米的有效距离":actual===0?"已生效：0 m · 该模式的距离停车已关闭":"已生效："+actual.toFixed(2)+" m · 前方距离不大于阈值时停车"}</p>
-      <p className="setting-note">0 m 表示关闭该模式的距离停车；急停与指令超时停车仍有效。</p>
+      <p className="live-helper">{!connected?"已生效：—（等待实车状态）":!valid?"请输入 0–5 米的有效距离":actual===0?"已生效：0 m · 该模式的额外距离停车已关闭":"已生效："+actual.toFixed(2)+" m · 额外防撞限制"}</p>
+      <p className="setting-note">0 m 只关闭该模式的额外距离停车；共享防撞、急停与指令超时停车仍有效。</p>
     </section>
   </div>;
 }

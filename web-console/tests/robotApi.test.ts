@@ -3,6 +3,19 @@ import test from "node:test";
 
 import { createRobotApi, statusSocketUrl } from "../src/robotApi.ts";
 
+test('vision search uses dedicated endpoints and propagates task identifiers', async()=>{
+  const calls:{url:string;body:unknown}[]=[];
+  const api=createRobotApi(async(url,init)=>{
+    calls.push({url:String(url),body:init?.body?JSON.parse(String(init.body)):null});
+    return new Response(JSON.stringify({state:'searching',run_id:'run'}),{headers:{'content-type':'application/json'}});
+  });
+  await api.getVision(); await api.startSearch({targets:[{name:'服务器',prompt:'server rack'}],travel:'auto'});
+  await api.searchAction('run','cancel');
+  assert.equal(calls[0].url,'/api/vision/status');
+  assert.equal(calls[1].url,'/api/search/start');
+  assert.deepEqual(calls[2],{url:'/api/search/action',body:{run_id:'run',action:'cancel'}});
+});
+
 test("robot API posts real mode and speed payloads", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const api = createRobotApi(async (url, init) => {

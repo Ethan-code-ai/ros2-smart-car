@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Session startup only. Never changes autostart or sends motion commands.
 set -eo pipefail
-entry=/home/jetson/ros2-smart-car-mapping-settings-20261020/start_test.sh
-unit=smart-car-mapping-settings-20261020.service
+entry=/home/jetson/ros2-smart-car-avoidance-20261028-66c66971/start_test.sh
+unit=smart-car-avoidance-037.service
 [[ -f "$entry" ]] || { echo 'CAR_NOT_DEPLOYED'; exit 20; }
 
 # An already running stack, including an active task, must remain untouched.
 if systemctl --user is-active --quiet "$unit"; then
     echo 'CAR_ALREADY_RUNNING'; exit 0
 fi
-for old_unit in smart-car-camera-fix-20261014.service smart-car-mapping-fix-20261013.service smart-car-current-test-20261013.service smart-car-current-test-20261008.service smart-car-test-20261008.service smart-car-restored-20261008.service; do
+for old_unit in smart-car-avoidance-20261028.service smart-car-avoidance-20261027.service smart-car-mapping-settings-20261020.service smart-car-camera-fix-20261014.service smart-car-mapping-fix-20261013.service smart-car-current-test-20261013.service smart-car-current-test-20261008.service smart-car-test-20261008.service smart-car-restored-20261008.service; do
     systemctl --user stop "$old_unit" 2>/dev/null || true
 done
 vendor='^python3 /home/jetson/Rosmaster/rosmaster/rosmaster_main.py$'

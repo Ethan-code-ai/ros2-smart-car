@@ -39,7 +39,8 @@ def test_annotated_frame_store_waits_for_new_frame_version():
 
 
 def test_visual_modes_release_direct_camera_preview():
-    assert should_release_camera_for_mode("auto") is True
+    # Auto now shares the web-owned capture with YOLO11 and YOLOE.
+    assert should_release_camera_for_mode("auto") is False
     assert should_release_camera_for_mode("object_follow") is True
     assert should_release_camera_for_mode("manual") is False
 
