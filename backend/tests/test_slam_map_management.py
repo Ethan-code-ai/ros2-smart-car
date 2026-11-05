@@ -19,6 +19,7 @@ def snapshot():
 
 @pytest.fixture
 def slam_client(client, login, tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.control_access.vehicle_binding", lambda db: ("fixture-robot-1", ""))
     monkeypatch.setattr("app.services.storage._storage", LocalStorageService(str(tmp_path)))
     calls = []
     async def export(_self):

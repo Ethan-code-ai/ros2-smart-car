@@ -49,7 +49,15 @@ function setSession(next: BusinessSession | null) {
   }
   listeners.forEach(callback => callback());
 }
-export function clearBusinessSession() { setSession(null); }
+export function clearBusinessSession() {
+  if (session && typeof window !== "undefined") {
+    for (const prefix of ["assistant-cursor", "pet-pending", "pet-notices"]) {
+      try { window.localStorage.removeItem(`insightrover.${prefix}.${session.user.id}`); }
+      catch { /* Storage is optional. */ }
+    }
+  }
+  setSession(null);
+}
 if (typeof window !== "undefined") window.addEventListener("storage", event => {
   if (event.key === SESSION_KEY) { session = readSession(); listeners.forEach(callback => callback()); }
 });
@@ -58,7 +66,7 @@ async function responseError(response: Response): Promise<Error> {
   const body = await response.json().catch(() => ({}));
   const detail = body.detail;
   const message = typeof detail === "string" ? detail : detail?.message || (Array.isArray(detail) ? "输入内容有误，请检查所填内容" : `请求失败（${response.status}）`);
-  return new Error(message);
+  return Object.assign(new Error(message), { status: response.status });
 }
 let refreshing: Promise<void> | null = null;
 async function refreshSession() {
@@ -72,9 +80,9 @@ async function refreshSession() {
   })().finally(() => { refreshing = null; });
   return refreshing;
 }
-async function request(path: string, options: RequestInit = {}): Promise<Response> {
+async function request(path: string, options: RequestInit = {}, prefix = "/api/v1"): Promise<Response> {
   if (!session) throw new Error("请先登录系统账户");
-  const send = () => fetch(`/api/v1${path}`, { ...options, headers: { ...options.headers, Authorization: `Bearer ${session?.access_token || ""}` } });
+  const send = () => fetch(`${prefix}${path}`, { ...options, headers: { ...options.headers, Authorization: `Bearer ${session?.access_token || ""}` } });
   let response: Response;
   try {
     response = await send();
@@ -86,11 +94,102 @@ async function request(path: string, options: RequestInit = {}): Promise<Respons
   if (!response.ok) { if (response.status === 401) clearBusinessSession(); throw await responseError(response); }
   return response;
 }
+export function vehicleControlRequest(url: string, options: RequestInit) {
+  return request(url.replace(/^\/api\//, "/"), options, "/api/control");
+}
 const jsonOptions = (method: string, data: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
 async function json<T>(path: string, options?: RequestInit): Promise<T> { return (await request(path, options)).json(); }
 const mapPath = (id: string) => `/maps/${encodeURIComponent(id)}`;
 
+export type AssistantDraft = {
+  id: string; state: string; version: number; digest: string; expires_at: number;
+  steps: { action: string; target?: string; cargo?: string; distance_m?: number; resources: {names: string[]}[];
+    capability: { executable: boolean; supported?: boolean; ready?: boolean; reasons?: string[] } }[];
+  execution?: AssistantExecution;
+};
+export type AssistantExecution = {
+  id: string; plan_id: string; robot_id: string; state: string; step_index: number; version: number;
+  vehicle_state?: string | null; message?: string | null;
+};
+export type AssistantEvent = {kind: string; payload: Record<string, unknown>};
+export type AssistantTurn = {
+  id: string; client_id: string; text: string; reply: { text: string; plan: AssistantDraft | null; report_id?: string } | null;
+};
+export type IncidentReport = {
+  id: string; start: string; end: string; total: number; missing_occurrence_time: number; truncated: boolean;
+  by_type: Record<string, number>; by_status: Record<string, number>;
+  type_labels: Record<string, string>; status_labels: Record<string, string>;
+  details: {id: string; title: string; occurred_at: string; type_label: string; status_label: string;
+    source: string; evidence_path: string}[];
+  coverage_note: string; coverage: {start: string; end: string; state: string}[]; focus_ids?: string[];
+};
+const assistantMessagesPath = (id: string) => `/assistant/sessions/${encodeURIComponent(id)}/messages`;
+
+export async function readAssistantEvents(after: number, receive: (id: number, event: AssistantEvent) => void | Promise<void>, signal: AbortSignal) {
+  const response = await request(`/assistant/events?after=${after}`, {signal});
+  if (!response.body) throw new Error("无法连接助手事件流");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (!signal.aborted) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      if (buffer.length > 256 * 1024) throw new Error("助手事件流格式无效");
+      for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
+        const lines = buffer.slice(0, end).split("\n");
+        buffer = buffer.slice(end + 2);
+        const id = Number(lines.find(line => line.startsWith("id: "))?.slice(4));
+        const data = lines.find(line => line.startsWith("data: "))?.slice(6);
+        if (Number.isSafeInteger(id) && id > after && data) {
+          await receive(id, JSON.parse(data) as AssistantEvent);
+          after = id;
+        }
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 export const businessApi = {
+  assistantReport: (id: string) => json<IncidentReport>(`/assistant/reports/${encodeURIComponent(id)}`),
+  assistantReportMarkdown: async (id: string) => (await request(
+    `/assistant/reports/${encodeURIComponent(id)}?format=markdown`)).blob(),
+  assistantPlan: (id: string, signal?: AbortSignal) => json<AssistantDraft>(
+    `/assistant/plans/${encodeURIComponent(id)}`, {signal}),
+  confirmAssistantPlan: ({id, version, digest}: AssistantDraft) => json<AssistantExecution>(
+    `/assistant/plans/${encodeURIComponent(id)}/confirm`, {
+      ...jsonOptions("POST", {version, digest}), signal: AbortSignal.timeout(18000),
+    }),
+    authorizeAssistantTrial: ({id, version, digest}: AssistantDraft) => json<{authorized: boolean; expires_at: number}>(
+      "/assistant/plans/" + encodeURIComponent(id) + "/trial-authorize", jsonOptions("POST", {version, digest})),
+    refreshAssistantPlan: ({id, version, digest}: AssistantDraft) => json<AssistantDraft>(
+      "/assistant/plans/" + encodeURIComponent(id) + "/refresh", jsonOptions("POST", {version, digest})),
+    assistantExecutionAction: (execution: AssistantExecution, action: string) => json<AssistantExecution>(
+    `/assistant/executions/${encodeURIComponent(execution.id)}/actions`,
+    jsonOptions("POST", {action, version: execution.version})),
+  assistantSettings: () => json<{enabled: boolean; configured: boolean}>("/assistant/settings"),
+  setAssistantEnabled: (enabled: boolean) => json<{enabled: boolean; configured: boolean}>(
+    "/assistant/settings", jsonOptions("PUT", {enabled})),
+  assistantSessions: (signal?: AbortSignal) => json<{items: {id: string; created_at: string}[]}>("/assistant/sessions", {signal}),
+  createAssistantSession: () => json<{id: string}>("/assistant/sessions", {method: "POST"}),
+  assistantMessages: (id: string, signal?: AbortSignal) => json<{items: AssistantTurn[]}>(assistantMessagesPath(id), {signal}),
+  sendAssistantMessage: (id: string, client_id: string, text: string) => json<AssistantTurn>(assistantMessagesPath(id), {
+    ...jsonOptions("POST", {client_id, text}), signal: AbortSignal.timeout(35000),
+  }),
+  stopBoundRobot: () => json<{
+    request_sent: boolean; controller_confirmed: boolean; stationary_confirmed: boolean; errors: string[];
+  }>("/robots/stop", { method: "POST", signal: AbortSignal.timeout(6000) }),
+  getRobotContext: (id: string, signal?: AbortSignal) => json<{
+    available: boolean; reason?: string; telemetry: null | {
+      mode?: string; emergency_stop?: boolean; navigation?: { message?: string };
+      search?: { run_id?: string; state?: string };
+      navigation_task?: { run_id?: string; task_id?: string; kind?: string; state?: string };
+    };
+  }>(`/robots/${encodeURIComponent(id)}/context`, { signal }),
   async login(username: string, password: string) {
     let response: Response;
     try { response = await fetch("/api/v1/auth/login", jsonOptions("POST", { username, password })); }

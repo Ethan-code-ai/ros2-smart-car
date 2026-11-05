@@ -1,9 +1,58 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { businessApi, clearBusinessSession, createMapRequestId, getBusinessSession, imagePoint } from "../src/services/businessApi.ts";
+import { businessApi, clearBusinessSession, createMapRequestId, getBusinessSession, imagePoint, readAssistantEvents } from "../src/services/businessApi.ts";
 
 const token = (access = "test-access") => ({ access_token: access, refresh_token: "test-refresh", user: { id: "u1", username: "operator", display_name: "操作员", role: { name: "operator", permissions: [{ name: "maps.manage" }] } } });
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+
+test("logout clears private assistant notices while keeping the saved pet position", async () => {
+  const original = globalThis.fetch;
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const removed: string[] = [];
+  globalThis.fetch = async () => response(token());
+  try {
+    await businessApi.login("operator", "password");
+    Object.defineProperty(globalThis, "window", {
+      configurable: true, value: { localStorage: { removeItem: (key: string) => removed.push(key) } },
+    });
+    clearBusinessSession();
+    assert.ok(removed.includes("insightrover.assistant-cursor.u1"));
+    assert.ok(removed.includes("insightrover.pet-pending.u1"));
+    assert.ok(removed.includes("insightrover.pet-notices.u1"));
+    assert.equal(removed.includes("insightrover.pet-position.u1"), false);
+    assert.equal(getBusinessSession(), null);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    clearBusinessSession();
+    globalThis.fetch = original;
+  }
+});
+
+test("assistant reconnect replays an unprocessed confirmation and skips duplicate IDs", async () => {
+  const original = globalThis.fetch;
+  const urls: string[] = [];
+  const event = (id: number) => `id: ${id}\ndata: {"kind":"plan.confirmation_required","payload":{}}\n\n`;
+  globalThis.fetch = async (path, options) => {
+    if (String(path).endsWith("/login")) return response(token());
+    urls.push(String(path));
+    assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer test-access");
+    return new Response(event(5) + event(6) + event(6) + event(7));
+  };
+  try {
+    await businessApi.login("operator", "password");
+    const signal = new AbortController().signal;
+    let cursor = 5;
+    await assert.rejects(readAssistantEvents(cursor, async () => {
+      throw new Error("确认详情暂时不可用");
+    }, signal), /确认详情暂时不可用/);
+    const received: number[] = [];
+    await readAssistantEvents(cursor, async id => { cursor = id; received.push(id); }, signal);
+    assert.deepEqual(urls, ["/api/v1/assistant/events?after=5", "/api/v1/assistant/events?after=5"]);
+    assert.deepEqual(received, [6, 7]);
+    assert.equal(cursor, 7);
+  } finally { clearBusinessSession(); globalThis.fetch = original; }
+});
 
 test("map save request IDs remain valid UUIDs on plain LAN HTTP without randomUUID",()=>{
   const a=createMapRequestId(),b=createMapRequestId();

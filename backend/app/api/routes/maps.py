@@ -20,6 +20,7 @@ from ...core.pagination import run_list
 from ...models import AppSetting, MapModel, MapPlace, MissionTask, PatrolTask, Robot, Route, User
 from ...schemas.ops import MapIn, MapPlaceIn, MapUpdate, SlamMapIn, MapOptimizationIn
 from ...gateway import get_robot_gateway
+from ...services.control_access import require_bound_vehicle
 from ...services.slam_maps import snapshot_assets
 from ...services.map_optimization import optimize_snapshot, isolated_candidates
 from ...services.ros_map_io import import_snapshot
@@ -127,14 +128,16 @@ def create_map(
 
 @router.post("/slam", status_code=201)
 async def save_slam_map(payload: SlamMapIn, db: Session = Depends(get_db), user: User = Depends(require_permission("maps.manage"))):
+    if "robots.control" not in user.permissions:
+        raise _error(403, "缺少机器人控制权限")
+    _, address = require_bound_vehicle(db, payload.robot_id)
     if db.get(Robot, payload.robot_id) is None:
         raise _error(404, "机器人不存在", "NOT_FOUND")
     map_id = str(uuid5(NAMESPACE_URL, f"slam:{payload.robot_id}:{payload.request_id}"))
     existing = db.get(MapModel, map_id)
     if existing is not None:
         return serialize_map(existing)
-    setting = db.scalar(select(AppSetting).where(AppSetting.key == "robot_web_url"))
-    gateway = get_robot_gateway(setting.value if setting else None)
+    gateway = get_robot_gateway(address)
     try:
         exported = await gateway.save_slam_map()
     except httpx.HTTPStatusError as exc:
@@ -390,6 +393,9 @@ def select_map(map_id: str, db: Session = Depends(get_db), user: User = Depends(
 @router.post("/{map_id}/load-navigation")
 async def load_navigation(map_id: str, payload: dict = Body(...), db: Session = Depends(get_db),
                           user: User = Depends(require_permission("maps.manage"))):
+    if "robots.control" not in user.permissions:
+        raise _error(403, "缺少机器人控制权限")
+    _, address = require_bound_vehicle(db)
     item = _map(db, map_id)
     metadata = json_loads(item.meta, {})
     key = metadata.get("assets", {}).get("snapshot.json", "")
@@ -398,9 +404,8 @@ async def load_navigation(map_id: str, payload: dict = Body(...), db: Session = 
     raw = get_storage().get(key)
     if raw is None:
         raise _error(404, "地图文件缺失")
-    setting = db.scalar(select(AppSetting).where(AppSetting.key == "robot_web_url"))
     try:
-        gateway = get_robot_gateway(setting.value if setting else None)
+        gateway = get_robot_gateway(address)
         snapshot = json.loads(raw)
         if any(snapshot.get('keepout',[])):
             capabilities = await gateway.navigation_request('runtime')

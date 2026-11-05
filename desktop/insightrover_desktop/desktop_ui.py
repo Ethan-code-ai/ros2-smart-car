@@ -80,6 +80,70 @@ def create_admin(root, config):
     return bool(ready)
 
 
+def configure_credentials(root, config):
+    from app.services.assistant_provider import ChatCompletionsProvider, ProviderUnavailable
+    from app.services.windows_credentials import CredentialError, delete_credentials, read_credentials, write_credentials
+
+    try:
+        saved = read_credentials(config.credential_profile)
+    except CredentialError as exc:
+        messagebox.showerror("凭据不可用", str(exc), parent=root)
+        return
+    dialog = tk.Toplevel(root)
+    dialog.title("车端与助手凭据")
+    dialog.transient(root)
+    dialog.grab_set()
+    dialog.minsize(500, 410)
+    box = ttk.Frame(dialog, style="Card.TFrame", padding=22)
+    box.pack(fill="both", expand=True)
+    ttk.Label(box, text="车端与助手凭据", style="Title.TLabel").pack(anchor="w")
+    ttk.Label(box, text="密钥保存在当前 Windows 用户的凭据管理器。密码框留空可保留原值。",
+              style="Hint.TLabel", wraplength=455).pack(anchor="w", pady=(8, 12))
+    fields = {}
+    for key, label, secret in (
+        ("robot_token", "车端机器凭据", True),
+        ("assistant_url", "模型 HTTPS API 地址", False),
+        ("assistant_model", "模型名称", False),
+        ("assistant_key", "模型 API 密钥", True),
+    ):
+        fields[key] = tk.StringVar(value="" if secret else saved.get(key, ""))
+        ttk.Label(box, text=label + ("（已保存）" if secret and saved.get(key) else ""),
+                  style="Card.TLabel").pack(anchor="w", pady=(6, 3))
+        ttk.Entry(box, textvariable=fields[key], show="●" if secret else "").pack(fill="x")
+
+    def save():
+        values = {key: field.get().strip() for key, field in fields.items()}
+        for key in ("robot_token", "assistant_key"):
+            values[key] = values[key] or saved.get(key, "")
+        try:
+            if values["robot_token"] and (len(values["robot_token"]) < 32
+                    or not values["robot_token"].isascii() or not values["robot_token"].isprintable()
+                    or any(character.isspace() for character in values["robot_token"])):
+                raise ValueError("车端凭据至少 32 个 ASCII 字符，不能含空格")
+            if any(values[key] for key in ("assistant_url", "assistant_model", "assistant_key")):
+                ChatCompletionsProvider(values["assistant_url"], values["assistant_model"], values["assistant_key"])
+            write_credentials(config.credential_profile, values)
+        except (CredentialError, ProviderUnavailable, ValueError) as exc:
+            messagebox.showerror("凭据未保存", str(exc), parent=dialog)
+            return
+        dialog.destroy()
+
+    def clear():
+        if not messagebox.askyesno("删除凭据", "删除这个配置的车端和模型凭据？", parent=dialog):
+            return
+        try:
+            delete_credentials(config.credential_profile)
+        except CredentialError as exc:
+            messagebox.showerror("凭据未删除", str(exc), parent=dialog)
+            return
+        dialog.destroy()
+
+    actions = ttk.Frame(box, style="Card.TFrame")
+    actions.pack(fill="x", pady=(14, 0))
+    ttk.Button(actions, text="删除已保存凭据", command=clear).pack(side="left")
+    ttk.Button(actions, text="保存", style="Primary.TButton", command=save).pack(side="right")
+
+
 class DesktopWindow:
     def __init__(self, root, config, backend, preview=False):
         self.root, self.config, self.backend = root, config, backend
@@ -213,6 +277,8 @@ class DesktopWindow:
         footer.pack(fill='x', pady=(10, 0))
         self.offline_button = ttk.Button(footer, text='离线打开控制台', command=self.open_offline)
         self.offline_button.pack(side='left')
+        ttk.Button(footer, text='凭据设置',
+                   command=lambda: configure_credentials(self.root, self.config)).pack(side='left', padx=8)
         ttk.Button(footer, text='数据目录', command=lambda: os.startfile(self.config.root)).pack(side='right')
         self.cancel_button = ttk.Button(footer, text='取消', command=self.cancelled.set, state='disabled')
         self.cancel_button.pack(side='right', padx=8)

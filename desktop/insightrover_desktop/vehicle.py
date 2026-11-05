@@ -103,9 +103,20 @@ class VehicleSession:
             raise
 
     def api_status(self, client, port):
-        code, output, _ = execute(client, 'python3 -c '+shlex.quote(
-            "import json,urllib.request;print(urllib.request.urlopen('http://127.0.0.1:"
-            +str(int(port))+"/api/status',timeout=2).read().decode())"), timeout=5)
+        from app.services.windows_credentials import read_credentials
+        token = read_credentials(self.config.credential_profile).get("robot_token", "")
+        probe = (
+            "import sys, urllib.error, urllib.request\n"
+            f"request = urllib.request.Request('http://127.0.0.1:{int(port)}/api/status', "
+            "headers={'X-InsightRover-Service-Token': sys.stdin.read()})\n"
+            "try:\n"
+            "    print(urllib.request.urlopen(request, timeout=2).read().decode())\n"
+            "except urllib.error.HTTPError as exc:\n"
+            "    sys.exit(23 if exc.code in (401, 403, 503) else 1)\n"
+        )
+        code, output, _ = execute(client, 'python3 -c ' + shlex.quote(probe), token, timeout=5)
+        if code == 23:
+            raise RuntimeError("车端凭据未配置或不匹配，请核对车端配置与桌面「凭据设置」")
         if code:
             return None
         try:

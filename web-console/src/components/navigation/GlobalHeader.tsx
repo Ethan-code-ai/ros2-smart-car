@@ -396,7 +396,38 @@ function UserMenu() {
   );
 }
 
+function VehicleStopButton() {
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState("");
+  async function stop() {
+    setPending(true);
+    setResult("");
+    try {
+      const value = await businessApi.stopBoundRobot();
+      if (value.stationary_confirmed && value.controller_confirmed) setResult("已确认静止");
+      else if (value.controller_confirmed) setResult("控制器已停止输出，静止待确认");
+      else if (value.request_sent) setResult("停止请求已发出，停车待确认");
+      else setResult("未确认停车，请检查车辆");
+      if (value.errors.includes("task_cancel_failed") || value.errors.includes("search_cancel_failed") ||
+          value.errors.includes("navigation_cancel_failed") || value.errors.includes("assistant_queue_cancel_unconfirmed")) {
+        setResult(message => message + "。任务取消待核对");
+      }
+    } catch {
+      setResult("未确认停车，请检查车辆");
+    } finally {
+      setPending(false);
+    }
+  }
+  return <div>
+    <button type="button" className="btn btn-outline" disabled={pending} onClick={() => void stop()}>
+      {pending ? "正在停止" : "停止车辆"}
+    </button>
+    {result && <small role="status">{result}</small>}
+  </div>;
+}
+
 export function GlobalHeader() {
+  const session = useBusinessSession();
   const path = usePath();
   return (
     <header className="global-header">
@@ -404,6 +435,8 @@ export function GlobalHeader() {
         <BrandMark />
         <NavigationMenu path={path} />
         <div className="header-tools">
+          {session?.user.role?.permissions.some(permission => permission.name === "robots.control") &&
+            <VehicleStopButton key={session.user.id} />}
           <button type="button" className="tool-btn search-trigger" onClick={() => uiStore.set({ commandOpen: true })} aria-label="全局搜索">
             <Search size={16} />
             <span className="search-hint">搜索</span>

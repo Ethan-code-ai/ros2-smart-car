@@ -1,12 +1,9 @@
-import asyncio
 import os
 import re
 from pathlib import Path
 from uuid import uuid4
 
-import httpx
-from fastapi import HTTPException, Request, WebSocket
-from fastapi.responses import StreamingResponse
+from fastapi import HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 CAR_PATH=re.compile(r'^(status|map|video|mode|command|emergency-stop|speed|avoidance|search(?:/[\w/-]+)?|vision/[\w/-]+|mode-obstacle-stop-distance|mapping/[\w/-]+|navigation/[\w/-]+)$')
@@ -51,11 +48,6 @@ def create_server(config, web_root, token, admin=None):
     from app.db.session import SessionLocal
     from app.models import AppSetting
 
-    def target():
-        with SessionLocal() as db:
-            value=db.query(AppSetting).filter(AppSetting.key=='robot_web_url').one_or_none()
-            return (value.value if value else config.car_url).rstrip('/')
-
     @app.get('/desktop/health')
     def health():
         return {'status':'ready','version':VERSION,'ip':config.value['ip']}
@@ -67,58 +59,8 @@ def create_server(config, web_root, token, admin=None):
         app.state.exit_requested=True
         return {'ok':True}
 
-    async def forward(request,path):
-        base=target()
-        if not base:raise HTTPException(503,'请在应用窗口中配置小车 IP')
-        headers={k:v for k,v in request.headers.items() if k.lower() not in {'host','connection','content-length'}}
-        client=httpx.AsyncClient(trust_env=False,timeout=httpx.Timeout(60,connect=4))
-        try:
-            upstream=await client.send(client.build_request(request.method,base+path,
-                        params=request.query_params,headers=headers,content=await request.body()),stream=True)
-        except httpx.HTTPError:
-            await client.aclose()
-            raise HTTPException(502,'无法连接小车，请检查 IP 和局域网连接') from None
-        async def body():
-            try:
-                async for chunk in upstream.aiter_raw():yield chunk
-            finally:
-                await upstream.aclose();await client.aclose()
-        response_headers={k:v for k,v in upstream.headers.items() if k.lower() not in {'transfer-encoding','connection'}}
-        return StreamingResponse(body(),status_code=upstream.status_code,headers=response_headers)
-
-    @app.api_route('/api/{path:path}',methods=['GET','POST','PUT','DELETE','PATCH','OPTIONS'])
-    async def car_api(path:str,request:Request):
-        if not CAR_PATH.fullmatch(path) or '..' in path:raise HTTPException(404,'接口不存在')
-        return await forward(request,'/api/'+path)
-
-    @app.get('/video_feed')
-    async def video(request:Request):return await forward(request,'/video_feed')
-
-    @app.websocket('/ws/status')
-    async def status_socket(socket:WebSocket):
-        from websockets.legacy.client import connect
-        await socket.accept()
-        base=target()
-        if not base:
-            await socket.close(code=1013);return
-        try:
-            async with connect(base.replace('http://','ws://').replace('https://','wss://')+'/ws/status',open_timeout=4,max_size=8*1024*1024) as upstream:
-                async def send():
-                    async for message in upstream:
-                        if isinstance(message,bytes):await socket.send_bytes(message)
-                        else:await socket.send_text(message)
-                async def receive():
-                    while True:await upstream.send(await socket.receive_text())
-                tasks=[asyncio.create_task(send()),asyncio.create_task(receive())]
-                try:
-                    done,pending=await asyncio.wait(tasks,return_when=asyncio.FIRST_COMPLETED)
-                    for task in done:task.result()
-                finally:
-                    for task in tasks:task.cancel()
-                    await asyncio.gather(*tasks,return_exceptions=True)
-        except Exception:
-            try:await socket.close(code=1013)
-            except RuntimeError:pass
+    # All vehicle traffic is handled by the authenticated business router.
+    # Do not reintroduce desktop-only raw proxies here.
 
     app.mount('/',StaticFiles(directory=Path(web_root),html=True),name='desktop-web')
     return app

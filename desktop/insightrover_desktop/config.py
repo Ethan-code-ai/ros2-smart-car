@@ -1,4 +1,5 @@
 """Persistent user data is deliberately outside the program installation."""
+import hashlib
 import ipaddress
 import json
 import os
@@ -42,6 +43,10 @@ class AppConfig:
         ip=self.value['ip']
         return f'http://[{ip}]:{self.value["port"]}' if ':' in ip else f'http://{ip}:{self.value["port"]}' if ip else ''
 
+    @property
+    def credential_profile(self):
+        return hashlib.sha256(os.path.normcase(str(self.root)).encode("utf-8")).hexdigest()
+
     def save(self):
         temp=self.path.with_suffix('.tmp')
         temp.write_text(json.dumps(self.value,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -56,6 +61,9 @@ class AppConfig:
         env=os.environ.copy()
         for name in ['ALL_PROXY','all_proxy','HTTP_PROXY','http_proxy','HTTPS_PROXY','https_proxy']:
             env.pop(name,None)
+        for name in ("ROBOT_SERVICE_TOKEN", "ASSISTANT_API_KEY", "ASSISTANT_API_KEY_FILE"):
+            env.pop(name, None)
+        env["INSIGHTROVER_CREDENTIAL_PROFILE"] = self.credential_profile
         env.update(DATABASE_URL='sqlite:///'+(self.root/'smart_patrol.db').as_posix(),
                    STORAGE_LOCAL_DIR=str(self.root/'storage'),JWT_SECRET=self.value['jwt_secret'],
                    ROBOT_WEB_URL=self.car_url,REDIS_ENABLED='false',MINIO_ENDPOINT='',

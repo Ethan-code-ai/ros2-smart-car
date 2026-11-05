@@ -6,6 +6,7 @@ httpx==0.28.1
 pytest==7.4.4
 Pillow>=10.3.0
 PyYAML>=6.0.2
+tzdata
 
 # 可选依赖：Redis 实时状态缓存与 MinIO 对象存储。
 # 未安装时后端自动降级为内存实时层（services/realtime.py）与本地文件存储（services/storage.py）。

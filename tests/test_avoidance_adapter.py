@@ -121,6 +121,32 @@ def test_restart_waits_for_ack_and_release_stops_real_control_loop(controller):
     assert c.avoidance.anchor is None
 
 
+def test_out_of_order_manual_packet_cannot_restart_motion_after_release(controller):
+    from smart_car_decision.control_lease import ControlLease
+
+    c = controller
+    config(c)
+    c.control_lease = lease = ControlLease()
+    c.publish_rate_hz = 20.0
+    c.actual_angular_speed = 0.0
+    identity = {"controller_id": lease.controller_id, "control_epoch": lease.epoch, "owner": "operator"}
+    c.on_control_lease(NS(data=json.dumps({**identity, "sequence": 0, "op": "acquire", "purpose": "manual"})))
+    c.on_mode(NS(data="manual"))
+
+    def drive(command, seq):
+        c.on_manual_command(NS(data=json.dumps({**identity, "command": command, "drive_seq": seq})))
+        c.control_loop()
+        return c.output[-1].linear.x
+
+    assert drive("forward", 1) > 0
+    assert drive("stop", 3) == 0
+    assert drive("forward", 2) == 0
+    assert drive("forward", 4) > 0
+    c.on_mode(NS(data="stop"))
+    c.on_mode(NS(data="manual"))
+    assert drive("forward", 5) == 0
+
+
 def test_exact_scan_transform_failure_and_stamp_reject_motion(controller):
     c = controller
     calls = []

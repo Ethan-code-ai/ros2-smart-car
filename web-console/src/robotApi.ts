@@ -1,9 +1,11 @@
 import type { CalibrationPair, NavigationConfig, NavigationPlan, NavigationState, Point, Pose } from "./labNavigation";
+import { vehicleControlRequest } from "./services/businessApi";
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 export type RadarPoint = { x: number; y: number; distance: number };
 export type AvoidanceSettings = { enabled: boolean; trigger_distance_m: number };
 export type VisionStatus = { supported: boolean; state: string; message: string; mobile_ready: boolean; inference_ms?: number; frame_age_ms?: number; detections: {label:string;confidence:number;passage?:string}[] };
-export type SearchStatus = { state:string; message:string; run_id:string|null; evidence?:{save_error?:string;event_id:string} };
+export type SearchStatus = { state:string; message:string; run_id:string|null; travel?: "stationary" | "patrol"; evidence?:{save_error?:string;event_id:string} };
+type SearchCapability = {executable:boolean; reasons:string[]};
 export type VisionSettings = {enabled:boolean;clutter_enabled:boolean;clutter_prompts:string[];imgsz:number};
 export type AvoidanceStatus = {
   supported: boolean; confirmed: boolean; available: boolean;
@@ -137,19 +139,35 @@ async function readJson<T>(response: Response): Promise<T> {
   return value as T;
 }
 export function createRobotApi(fetchImpl: FetchLike = fetch) {
+  if (fetchImpl === fetch) {
+    fetchImpl = (url, options) => vehicleControlRequest(String(url), options ?? {});
+  }
   const post = <T>(url: string, body: unknown, timeout = 5000) => fetchImpl(url, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout)
   }).then((response) => readJson<T>(response));
+  let drive: { id: string; sequence: number } | null = null;
+  let driveGeneration = 0;
+  const selectDrive = async <T extends { drive_id?: string }>(url: string, body: unknown, timeout: number) => {
+    const generation = ++driveGeneration;
+    drive = null;
+    const result = await post<T>(url, body, timeout);
+    if (generation === driveGeneration && result.drive_id) drive = { id: result.drive_id, sequence: 0 };
+    return result;
+  };
   return {
     getVision: () => fetchImpl('/api/vision/status', {cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>readJson<VisionStatus>(r)),
     getVisionSettings: () => fetchImpl('/api/vision/settings', {cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>readJson<VisionSettings>(r)),
     setVisionSettings: (value:Partial<VisionSettings>) => post<VisionSettings>('/api/vision/settings',value),
     getSearch: () => fetchImpl('/api/search', {cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>readJson<SearchStatus>(r)),
-    startSearch: (value:unknown) => post<SearchStatus>('/api/search/start',value,20000),
+    getSearchCapabilities: () => fetchImpl('/api/search/capabilities', {cache:'no-store',signal:AbortSignal.timeout(5000)})
+      .then(r=>readJson<{observe_target:SearchCapability; patrol_search:SearchCapability}>(r)),
+    startSearch: (value:unknown) => post<SearchStatus>('/api/search/start',value,30000),
     searchAction: (run_id:string,action:string) => post<SearchStatus>('/api/search/action',{run_id,action}),
     getAvoidance: () => fetchImpl('/api/avoidance', { cache: 'no-store', signal: AbortSignal.timeout(5000) }).then(r => readJson<AvoidanceStatus>(r)),
     setAvoidance: (changes: Partial<AvoidanceSettings>) => post<AvoidanceStatus>('/api/avoidance', changes),
     getNavigationRuntime: () => fetchImpl("/api/navigation/runtime", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then(r => readJson<NavigationRuntimeState>(r)),
+    getNavigationCapability: () => fetchImpl("/api/navigation/capabilities", { cache: "no-store", signal: AbortSignal.timeout(5000) })
+      .then(r => readJson<{navigate: SearchCapability}>(r)).then(value => value.navigate),
     setInitialPose: (pose: Pose, asset_digest: string) => post<NavigationRuntimeState>("/api/navigation/initial-pose", { ...pose, asset_digest }),
     getNavigationTask: () => fetchImpl("/api/navigation/task", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then(r => readJson<NavigationTaskState>(r)),
     getNavigationConfig: () => fetchImpl("/api/navigation/config", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then(r => readJson<NavigationConfig>(r)),
@@ -157,16 +175,25 @@ export function createRobotApi(fetchImpl: FetchLike = fetch) {
     addNavigationPlace: (name: string, drawing: Point, yaw: number, context?: { map_key: string; calibration_matrix: number[]; calibration_drawing: import("./labNavigation").DrawingDescriptor }) => post<NavigationConfig>("/api/navigation/places", { name, drawing, yaw, ...context }),
     removeNavigationPlace: (id: string) => fetchImpl(`/api/navigation/places/${encodeURIComponent(id)}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).then(r => readJson<NavigationConfig>(r)),
     planNavigation: (goal: Pose, map_key: string, calibration_matrix: number[], drawing?: import("./labNavigation").DrawingDescriptor) => post<NavigationPlan>("/api/navigation/plan", { goal, map_key, calibration_matrix, ...(drawing ? { calibration_drawing: drawing } : {}) }, 20000),
-    startNavigation: (plan_id: string) => post<{ ok: boolean; goal_id: string }>("/api/navigation/start", { plan_id }, 15000),
+    startNavigation: (plan_id: string) => post<{ ok: boolean; goal_id: string }>("/api/navigation/start", { plan_id }, 30000),
     cancelNavigation: () => post<{ ok: boolean }>("/api/navigation/cancel", {}),
     getStatus: () => fetchImpl("/api/status", { cache: "no-store", signal: AbortSignal.timeout(5000) }).then((response) => readJson<RobotStatus>(response)),
     getMap: (signal?: AbortSignal) => fetchImpl("/api/map", { cache: "no-store", signal: signal ?? AbortSignal.timeout(5000) }).then((response) => readJson<MapSnapshot>(response)),
-    restartMapping: () => post<MappingRestartResult>("/api/mapping/restart", {}, 45000),
+    restartMapping: () => selectDrive<MappingRestartResult & { drive_id?: string }>("/api/mapping/restart", {}, 50000),
     setMotionSettings: (changes: Partial<MotionMappingSettings>) => post<{ok: boolean; settings: MotionMappingSettings}>("/api/mapping/settings", changes),
     saveMapping: () => post<MappingSaveResult>("/api/mapping/save", {}),
-    setMode: (mode: string) => post<{ mode: string }>("/api/mode", { mode }),
-    sendCommand: (command: string) => post<{ command: string }>("/api/command", { command }),
-    setEmergencyStop: (enabled: boolean) => post<{ emergency_stop: boolean }>("/api/emergency-stop", { enabled }),
+    setMode: (mode: string) => selectDrive<{ mode: string; drive_id?: string }>("/api/mode", { mode }, 10000),
+    sendCommand: async (command: string) => {
+      if (drive) {
+        return post<{ command: string }>("/api/command", { command, drive_id: drive.id, drive_seq: ++drive.sequence });
+      }
+      if (command !== "stop") throw new Error("请先选择手动驾驶或开始建图");
+      return post<{ command: string }>("/api/command", { command });
+    },
+    setEmergencyStop: (enabled: boolean) => {
+      if (enabled) { ++driveGeneration; drive = null; }
+      return post<{ emergency_stop: boolean }>("/api/emergency-stop", { enabled });
+    },
     setSpeed: (scale: number) => post<{ speed_scale: number }>("/api/speed", { scale }),
     setModeObstacleStopDistance: (mode: string, distance: number) => post<{ mode_obstacle_stop_distances: Record<string, number> }>("/api/mode-obstacle-stop-distance", { mode, distance }),
     setColorConfig: (config: ColorConfig) => post<{ color_config: ColorConfig }>("/api/color-target", config)

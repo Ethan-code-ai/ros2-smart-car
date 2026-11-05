@@ -30,7 +30,7 @@ class Settings:
         ]
 
         self.system_name = os.getenv("SYSTEM_NAME", "InsightRover 智巡控制台")
-        self.app_version = os.getenv("APP_VERSION", "0.2.0")
+        self.app_version = os.getenv("APP_VERSION", "4.0.0")
 
         # Redis：机器人实时状态缓存 robot:status:{robot_id}
         self.redis_url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")

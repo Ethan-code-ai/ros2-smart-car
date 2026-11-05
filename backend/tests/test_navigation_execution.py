@@ -6,6 +6,15 @@ import pytest
 
 @pytest.fixture
 def execution_client(client, login, monkeypatch):
+    from app.services.control_leases import ControlLeaseManager
+    manager = ControlLeaseManager()
+    monkeypatch.setattr("app.api.routes.navigation_tasks.control_lease_manager", manager)
+    async def lease_request(self, payload=None):
+        if payload is None:
+            return {"controller_id": "test-controller", "control_epoch": "test-epoch", "fresh": True, "blocked": True}
+        return {"confirmed": True, "lease": {**payload, "fresh": True, "blocked": payload["op"] != "acquire"}}
+    monkeypatch.setattr("app.gateway.robot_gateway.RobotGateway.control_lease", lease_request)
+    monkeypatch.setattr("app.api.routes.navigation_tasks.vehicle_binding", lambda db: ("fixture-robot-1", ""))
     runs, calls = {}, []
     async def request(self, path, payload=None, *, query=None):
         calls.append((path, payload, query))
@@ -17,6 +26,9 @@ def execution_client(client, login, monkeypatch):
             return runs[query["run_id"]]
         if path == "task/action":
             value = runs[payload["run_id"]]
+            if payload["action"] == "loaded":
+                assert payload["control_lease"] == manager.current.identity()
+                value["control_lease"] = payload["control_lease"]
             transitions = {"loaded": "running", "handover": "completed", "cancel": "cancelled"}
             value.update(state=transitions[payload["action"]], message="已更新")
             return value

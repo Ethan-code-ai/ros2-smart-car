@@ -111,13 +111,15 @@ def test_robot_crud_and_status(client, login, cleanup):
     assert set(paged) == {"items", "total", "page", "page_size"}
 
 
-def test_robot_control_and_emergency_stop(client, login, cleanup):
+def test_robot_control_and_emergency_stop(client, login, cleanup, monkeypatch):
     token = login("operator", "operator123")
     robot = client.post(
         "/api/v1/robots",
         json={"name": "DOC-Robot-02", "robot_code": "DOC-R-0002", "status": "online"},
         headers=_headers(token),
     ).json()
+    from app.services import control_access
+    monkeypatch.setattr(control_access, "vehicle_binding", lambda db: (robot["id"], ""))
 
     control = client.post(
         f"/api/v1/robots/{robot['id']}/control",
@@ -367,9 +369,10 @@ def test_media_local_object_roundtrip(client, login, storage_dir):
     )
     assert presign.status_code == 200, presign.text
     assert presign.json()["backend"] == "local"
+    key = presign.json()["key"]
 
     upload = client.put(
-        "/api/v1/media/object/doc-test/frame.png",
+        presign.json()["url"],
         content=b"fake-png-bytes",
         headers={"Content-Type": "image/png", **_headers(token)},
     )
@@ -378,17 +381,17 @@ def test_media_local_object_roundtrip(client, login, storage_dir):
 
     completed = client.post(
         "/api/v1/media/complete",
-        json={"key": "doc-test/frame.png", "size": 14},
+        json={"key": key, "size": 14},
         headers=_headers(token),
     )
     assert completed.status_code == 200
 
-    download = client.get("/api/v1/media/object/doc-test/frame.png", headers=_headers(token))
+    download = client.get(presign.json()["url"], headers=_headers(token))
     assert download.status_code == 200
     assert download.content == b"fake-png-bytes"
     assert download.headers["content-type"] == "image/png"
 
-    missing = client.get("/api/v1/media/object/doc-test/none.png", headers=_headers(token))
+    missing = client.get(presign.json()["url"] + ".missing", headers=_headers(token))
     assert missing.status_code == 404
 
 
@@ -429,12 +432,19 @@ def test_notifications_unread_filter(client, login):
     assert all(note["id"] != first["id"] for note in remaining)
 
 
-def test_robot_websocket_initial_frame(client, login):
+def test_robot_websocket_initial_frame(client, login, monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+    from conftest import TestingSessionLocal
+    monkeypatch.setattr("app.api.routes.ws.SessionLocal", TestingSessionLocal)
     token = login("operator", "operator123")
     robot_id = _robot_id(client, token)
     from app.services.realtime import get_realtime_store
     get_realtime_store().set_status(robot_id, {"status":"online", "mode":"patrol", "battery":77.0,"position":{"x":1.0,"y":2.0}})
-    with client.websocket_connect(f"/ws/v1/robots/{robot_id}") as websocket:
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect(f"/ws/v1/robots/{robot_id}"):
+            pass
+    assert error.value.code == 1008
+    with client.websocket_connect(f"/ws/v1/robots/{robot_id}", headers=_headers(token)) as websocket:
         message = websocket.receive_json()
         assert message["type"] == "robot_status"
         assert message["robot_id"] == robot_id

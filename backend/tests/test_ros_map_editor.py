@@ -14,6 +14,7 @@ from app.services.slam_maps import snapshot_assets
 
 @pytest.fixture(autouse=True)
 def isolated_storage(tmp_path,monkeypatch):
+    monkeypatch.setattr("app.services.control_access.vehicle_binding", lambda db: ("fixture-robot-1", ""))
     from app.services import storage
     monkeypatch.setattr(storage,'_storage',storage.LocalStorageService(str(tmp_path/'storage')))
 

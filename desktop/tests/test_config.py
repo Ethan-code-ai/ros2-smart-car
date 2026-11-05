@@ -40,6 +40,17 @@ def test_config_secret_and_map_files_survive_upgrade(tmp_path):
     assert cfg.has_users()
 
 
+def test_desktop_environment_contains_only_credential_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_API_KEY", "test-key")
+    monkeypatch.setenv("ROBOT_SERVICE_TOKEN", "test-token")
+    cfg = AppConfig(tmp_path / "data")
+    env = cfg.environment()
+    assert env["INSIGHTROVER_CREDENTIAL_PROFILE"] == AppConfig(cfg.root).credential_profile
+    assert "ASSISTANT_API_KEY" not in env and "ROBOT_SERVICE_TOKEN" not in env
+    assert "test-key" not in cfg.path.read_text(encoding="utf-8")
+    assert "test-token" not in cfg.path.read_text(encoding="utf-8")
+
+
 def test_no_user_data_or_credentials_in_application_payload():
     root=Path(__file__).resolve().parents[2]
     package=root/'output/windows-app-20261020/dist/InsightRover'

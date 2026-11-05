@@ -8,6 +8,7 @@ import { businessApi, getBusinessSession, type SlamMapDraft } from "../services/
 
 function useSharedRobot() {
   const api = useMemo(() => createRobotApi(), []);
+  const [navigationCapability, setNavigationCapability] = useState<{executable: boolean; reasons: string[]} | null>(null);
   const [status, setStatus] = useState<RobotStatus>(initialRobotStatus);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState("");
@@ -60,6 +61,7 @@ function useSharedRobot() {
       }
       if (!active) return;
       socket = new WebSocket(statusSocketUrl(window.location));
+      socket.onopen = () => socket?.send(JSON.stringify({ type: "authenticate", token: getBusinessSession()?.access_token || "" }));
       socketStartedAt = Date.now();
       socket.onmessage = event => { try { accept(JSON.parse(event.data)); } catch { if (active) setConnectionError("车端状态格式异常"); } };
       socket.onerror = () => { if (active) { connectedRef.current = false; setConnection("disconnected"); } };
@@ -80,6 +82,24 @@ function useSharedRobot() {
   }, [api, updateStatus, clearMap]);
 
   const mapAvailable = status.map.ok || status.map.width > 0 || status.mode === "mapping" || status.navigation.ready;
+  useEffect(() => {
+    setNavigationCapability(null);
+    if (connection !== "connected" || !status.navigation.ready) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const capability = await api.getNavigationCapability();
+        if (active) setNavigationCapability(capability);
+      } catch {
+        if (active) setNavigationCapability(null);
+      } finally {
+        if (active) timer = setTimeout(refresh, 2500);
+      }
+    }
+    void refresh();
+    return () => { active = false; clearTimeout(timer); };
+  }, [api, connection, mapSessionKey, status.navigation.ready]);
   useEffect(() => {
     if (connection !== "connected" || !mapAvailable) { if (mapRef.current) setMapError(connection !== "connected" ? "连接已断开，显示最近地图" : "地图暂未更新，显示最近地图"); return; }
     return startMapPolling({
@@ -110,19 +130,15 @@ function useSharedRobot() {
   }, [api, perform]);
   const setMode = useCallback(async (mode: string) => {
     window.dispatchEvent(new Event("robot-control-stop"));
-    await sendCommand("stop");
     if (mode !== "stop" && statusRef.current.emergency_stop) { setError("请先解除急停"); return false; }
     if (mode === "mapping" && !await perform(() => api.setSpeed(percentToScale(statusRef.current.speed_scale * 100, true)), "")) return false;
     return (await perform(() => api.setMode(mode), "模式指令已发送，等待实时状态确认")) !== null;
-  }, [api, perform, sendCommand]);
+  }, [api, perform]);
   const setEmergencyStop = useCallback(async (enabled: boolean) => {
     window.dispatchEvent(new Event("robot-control-stop"));
-    if (!enabled) {
-      if (!await perform(() => api.setMode("stop"), "")) return false;
-      await sendCommand("stop");
-    }
+    if (!enabled && !await perform(() => api.setMode("stop"), "")) return false;
     return (await perform(() => api.setEmergencyStop(enabled), enabled ? "急停指令已发送" : "已解除急停，保持停止模式")) !== null;
-  }, [api, perform, sendCommand]);
+  }, [api, perform]);
   const setSpeed = useCallback(async (percent: number) => {
     const scale = percentToScale(percent, statusRef.current.mode === "mapping");
     return (await perform(() => api.setSpeed(scale), `速度比例已设置为 ${Math.round(scale * 100)}%`)) !== null;
@@ -152,7 +168,6 @@ function useSharedRobot() {
     window.dispatchEvent(new Event("robot-control-stop"));
     const s = statusRef.current;
     if (s.emergency_stop || !s.lidar.ok || !s.odom.ok || !s.tf.ok) { setError("请先解除急停并检查雷达、里程计及 TF"); return false; }
-    await sendCommand("stop");
     if (!await perform(() => api.setSpeed(percentToScale(s.speed_scale * 100, true)), "")) return false;
     setSavedMap(null);
     mapGate.current.beginRestart();
@@ -162,9 +177,8 @@ function useSharedRobot() {
     // Resume polling even when restart fails or an older backend has no session ID.
     setMapSessionKey(n => n + 1);
     if (result?.mapping) updateStatus({ ...statusRef.current, mapping: result.mapping });
-    if (!result) await perform(() => api.setMode("stop"), "", true);
     return result !== null;
-  }, [api, perform, sendCommand, clearMap, updateStatus]);
+  }, [api, perform, clearMap, updateStatus]);
   const saveMapping = useCallback(async (draft: SlamMapDraft) => {
     if (!getBusinessSession()) { setError("请先登录系统账户，再将地图保存到地图管理"); return false; }
     window.dispatchEvent(new Event("robot-control-stop"));
@@ -174,7 +188,7 @@ function useSharedRobot() {
       yaml_path: String(result.metadata.vehicle_yaml_path || ""), pgm_path: String(result.metadata.vehicle_pgm_path || "") });
     return result !== null;
   }, [perform, sendCommand]);
-  return { status, connection, connectionError, error, message, pending: pending > 0, receivedAt, savedMap, mapSnapshot, mapError, mapStale: !!mapSnapshot && (!!mapError || connection !== "connected"), mapSessionKey, initialMapYaw, api, boundRobotId: LIVE_ROBOT_ID, sendCommand, setMode, setEmergencyStop, setSpeed, setMotionSettings, setModeObstacleStopDistance, setAvoidance, restartMapping, saveMapping };
+  return { status, connection, connectionError, error, message, pending: pending > 0, receivedAt, savedMap, mapSnapshot, mapError, mapStale: !!mapSnapshot && (!!mapError || connection !== "connected"), mapSessionKey, initialMapYaw, api, navigationCapability, boundRobotId: LIVE_ROBOT_ID, sendCommand, setMode, setEmergencyStop, setSpeed, setMotionSettings, setModeObstacleStopDistance, setAvoidance, restartMapping, saveMapping };
 }
 type RobotStream = ReturnType<typeof useSharedRobot>;
 const RobotContext = createContext<RobotStream | null>(null);

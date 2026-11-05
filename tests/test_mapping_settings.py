@@ -127,14 +127,14 @@ def test_recorder_full_topic_metadata_and_graceful_close(monkeypatch, tmp_path, 
     recorder.start('session1', {'turn_speed': .15, 'max_laser_range': 3.})
     recorder.append_status({'map_pose': {'yaw': 1.}, 'odom': {'angular_speed': .15}})
     recorder.stop('mode_exit')
-    summary=json.loads((recorder.directory/'session.json').read_text())
+    summary=json.loads((recorder.directory/'session.json').read_text(encoding="utf-8"))
     assert summary['state']==('error' if missing_required else 'finished')
     assert summary['complete'] is (not missing_required)
     assert '/imu/data_raw' in summary['missing_topics']
     if missing_required:
         assert '/odom' in summary['error']
     assert summary['topic_counts']['/tf_static']==1
-    assert 'map_pose' in (recorder.directory/'status.jsonl').read_text()
+    assert 'map_pose' in (recorder.directory/'status.jsonl').read_text(encoding="utf-8")
     recorder.stop('again')
     assert len(signals)==1
 

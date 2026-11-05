@@ -18,7 +18,8 @@ def main():
     files=[p for p in PACKAGE.rglob('*') if p.is_file() and (p.suffix in allowed or p.parent.name=='resource')
            and not any(part in {'__pycache__','models','node_modules','.pytest_cache'} for part in p.relative_to(PACKAGE).parts)]
     files += [ROOT/p for p in ['scripts/prepare_yoloe11.py','scripts/prepare_scan_provenance_patch.py',
-        'scripts/benchmark_vision_service.py',f'docs/vision-search-{VERSION}.md',
+        'scripts/benchmark_vision_service.py','docs/v4-vehicle-deployment.md',
+        'docs/v4-control-lease.md','docs/v4-agent-control.md','docs/v4-physical-acceptance.md','docs/vision-search-0.3.11.md',
         'docs/holonomic-avoidance-fix-20261028.md','docs/assumed-clear-policy-20261028.md']]
     files += [p for p in (ROOT/'web-console/dist').rglob('*') if p.is_file()]
     manifest={str(p.relative_to(ROOT)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)}
@@ -29,7 +30,7 @@ def main():
         info=tarfile.TarInfo('source-sha256.json');info.size=len(content)
         archive.addfile(info,io.BytesIO(content))
     (RELEASE/'车端源码清单.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-    (RELEASE/'实施与待验收说明.md').write_bytes((ROOT/f'docs/vision-search-{VERSION}.md').read_bytes())
+    (RELEASE/'实施与待验收说明.md').write_bytes((ROOT/'docs/v4-vehicle-deployment.md').read_bytes())
     (RELEASE/'横移避障修正说明.md').write_bytes((ROOT/'docs/holonomic-avoidance-fix-20261028.md').read_bytes())
     (RELEASE/'缺测处理说明.md').write_bytes((ROOT/'docs/assumed-clear-policy-20261028.md').read_bytes())
     artifacts=[p for p in RELEASE.iterdir() if p.suffix in {'.exe','.gz'}]

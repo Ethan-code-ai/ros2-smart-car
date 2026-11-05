@@ -34,7 +34,8 @@ def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
     except ValueError:
         return None
 
@@ -80,10 +81,20 @@ def list_incidents(
     robot_id: str | None = Query(default=None),
     type: str | None = Query(default=None),
     keyword: str | None = Query(default=None),
+    occurred_from: datetime | None = Query(default=None),
+    occurred_before: datetime | None = Query(default=None),
     page: int | None = Query(default=None, ge=1),
     page_size: int | None = Query(default=None, ge=1, le=200),
 ):
     stmt = select(Incident).order_by(Incident.created_at.desc())
+    if any(value is not None and value.tzinfo is None for value in (occurred_from, occurred_before)):
+        raise HTTPException(422, "时间范围必须包含时区")
+    if occurred_from is not None and occurred_before is not None and occurred_from >= occurred_before:
+        raise HTTPException(422, "时间范围无效")
+    if occurred_from is not None:
+        stmt = stmt.where(Incident.occurred_at >= occurred_from.astimezone(timezone.utc))
+    if occurred_before is not None:
+        stmt = stmt.where(Incident.occurred_at < occurred_before.astimezone(timezone.utc))
     if severity:
         stmt = stmt.where(Incident.severity == severity)
     if status:

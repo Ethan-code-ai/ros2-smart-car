@@ -4,10 +4,12 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ...core.pagination import run_list
 from ...gateway import ALLOWED_COMMANDS, get_robot_gateway
+from ...services.operator_control import DRIVE_COMMANDS, select_operator_mode, send_drive
 from ...models import AppSetting
 from ...models.core import Robot
 from ...models.user import User
@@ -15,6 +17,11 @@ from ...schemas.robot import EmergencyStopIn, RobotControlIn, RobotCreate, Robot
 from ...services.ops import notify_users, record_audit
 from ...services.realtime import get_realtime_store
 from ...services.robots import serialize_robot, status_payload
+from ...services.robot_context import robot_context_service, vehicle_binding
+from ...services.capabilities import capability_snapshot
+from ...services.control_access import require_bound_vehicle, authorize_business_command
+from ...services.control_leases import control_lease_manager
+from ...services.assistant_execution import request_cancellation
 from ...services.ws_manager import robot_manager
 from ..deps import get_db, require_any_permission, require_permission
 
@@ -150,6 +157,24 @@ def robot_status(
     return status_payload(robot, store.get_status(robot_id), store.backend)
 
 
+@router.get("/{robot_id}/context")
+async def robot_context(
+    robot_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("robots.read")),
+) -> dict:
+    _get_robot(db, robot_id)
+    return robot_context_service.context(robot_id, vehicle_binding(db))
+
+
+@router.get("/{robot_id}/capabilities")
+def robot_capabilities(robot_id: str, db: Session = Depends(get_db),
+                       _: User = Depends(require_permission("robots.read"))):
+    _get_robot(db, robot_id)
+    context = robot_context_service.context(robot_id, vehicle_binding(db))
+    return capability_snapshot(db, context)
+
+
 @router.post("/{robot_id}/control")
 async def robot_control(
     robot_id: str,
@@ -158,6 +183,8 @@ async def robot_control(
     user: User = Depends(require_permission("robots.control")),
 ) -> dict:
     robot = _get_robot(db, robot_id)
+    _, address = require_bound_vehicle(db, robot_id)
+    authorize_business_command(payload.command, payload.params, user.permissions)
     store = get_realtime_store()
     current = store.get_status(robot_id) or {}
     if current.get("emergency_stop") and payload.command != "stop":
@@ -175,14 +202,36 @@ async def robot_control(
             },
         )
 
-    gateway = get_robot_gateway(_gateway_base_url(db) or None)
-    result = await gateway.send_command(
-        robot_id,
-        payload.command,
-        speed=payload.speed,
-        params=payload.params,
-        robot_code=robot.robot_code or robot.serial,
-    )
+    gateway = get_robot_gateway(address)
+    async def stop_bound():
+        return await robot_stop(robot_id, db, user)
+
+    command = payload.command
+    mode = payload.params.get("mode", "manual")
+    if address and (command == "set_mode" or command in DRIVE_COMMANDS):
+        if (command == "stop" and not payload.params) or (command == "set_mode" and mode == "stop"):
+            response = await stop_bound()
+            ok = response["controller_confirmed"]
+        elif command == "set_mode":
+            if not isinstance(mode, str):
+                raise HTTPException(422, "驾驶模式无效")
+            response = await select_operator_mode(db, (robot_id, address), user, "mode", mode, stop_bound)
+            ok = True
+        else:
+            response = await send_drive((robot_id, address), user, command,
+                                        payload.params.get("drive_id"), payload.params.get("drive_seq"))
+            ok = True
+        result = {"ok": ok, "gateway": gateway.mode, "target": gateway.base_url, "detail": "ok" if ok else "停车未确认",
+                  "command": gateway.build_command(robot_id, command), "response": response}
+    elif address and command == "emergency_stop":
+        enabled = payload.params.get("enabled")
+        if type(enabled) is not bool:
+            raise HTTPException(422, "急停状态必须明确指定")
+        return await robot_emergency_stop(robot_id, EmergencyStopIn(enabled=enabled), db, user)
+    else:
+        result = await gateway.send_command(
+            robot_id, command, speed=payload.speed, params=payload.params, robot_code=robot.robot_code or robot.serial,
+        )
 
     store.add_activity(
         robot_id,
@@ -219,6 +268,45 @@ async def robot_control(
     }
 
 
+def revoke_host_execution(db, robot_id):
+    # Invalidate pending acquisitions immediately; do not wait for the model or task queue.
+    control_lease_manager.generation += 1
+    control_lease_manager.current = None
+    queue_error = False
+    try:
+        request_cancellation(db, robot_id=robot_id)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        queue_error = True
+    return queue_error
+
+
+@router.post("/{robot_id}/stop")
+async def robot_stop(robot_id: str, db: Session = Depends(get_db),
+                     user: User = Depends(require_permission("robots.control"))):
+    _get_robot(db, robot_id)
+    _, address = require_bound_vehicle(db, robot_id)
+    queue_error = revoke_host_execution(db, robot_id)
+    try:
+        result = await get_robot_gateway(address).stop()
+    except Exception:
+        result = {"request_sent": False, "controller_confirmed": False,
+                  "stationary_confirmed": False, "errors": ["vehicle_stop_unconfirmed"]}
+    if queue_error:
+        result["errors"] = [*result.get("errors", []), "assistant_queue_cancel_unconfirmed"]
+    record_audit(db, user, "robots.stop", "robot", robot_id, after=result)
+    db.commit()
+    return {"robot_id": robot_id, **result}
+
+
+@router.post("/stop")
+async def stop_bound_robot(db: Session = Depends(get_db),
+                           user: User = Depends(require_permission("robots.control"))):
+    robot_id, _ = require_bound_vehicle(db)
+    return await robot_stop(robot_id, db, user)
+
+
 @router.post("/{robot_id}/emergency-stop")
 async def robot_emergency_stop(
     robot_id: str,
@@ -227,8 +315,10 @@ async def robot_emergency_stop(
     user: User = Depends(require_permission("robots.control")),
 ) -> dict:
     robot = _get_robot(db, robot_id)
+    _, address = require_bound_vehicle(db, robot_id)
     store = get_realtime_store()
-    gateway = get_robot_gateway(_gateway_base_url(db) or None)
+    gateway = get_robot_gateway(address)
+    queue_error = revoke_host_execution(db, robot_id) if payload.enabled else False
     result = await gateway.emergency_stop(
         robot_id,
         enabled=payload.enabled,
@@ -250,7 +340,8 @@ async def robot_emergency_stop(
         "robots.emergency_stop" if payload.enabled else "robots.emergency_stop_release",
         "robot",
         robot_id,
-        after={"enabled": payload.enabled, "reason": payload.reason, "ok": result["ok"]},
+        after={"enabled": payload.enabled, "reason": payload.reason, "ok": result["ok"],
+               "assistant_queue_cancel_unconfirmed": queue_error},
     )
     notify_users(
         db,

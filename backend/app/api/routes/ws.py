@@ -14,7 +14,7 @@ from sqlalchemy import select, or_, and_
 from ...core.config import settings
 from ...core.security import decode_token
 from ...db.session import SessionLocal
-from ...models import Notification, User
+from ...models import Notification, Robot, User
 from ...services.realtime import get_realtime_store
 from ...services.ws_manager import notification_manager, robot_manager
 
@@ -25,6 +25,10 @@ PING_FRAMES = {"ping", '{"type":"ping"}'}
 
 @router.websocket("/ws/v1/robots/{robot_id}")
 async def robot_status_ws(websocket: WebSocket, robot_id: str) -> None:
+    user_id = _ws_user_id(websocket)
+    if not _can_read_robot(user_id, robot_id):
+        await websocket.close(code=1008)
+        return
     await robot_manager.connect(websocket, room=robot_id)
     store = get_realtime_store()
     try:
@@ -46,6 +50,9 @@ async def robot_status_ws(websocket: WebSocket, robot_id: str) -> None:
             except asyncio.TimeoutError:
                 pass
 
+            if _ws_user_id(websocket) != user_id or not _can_read_robot(user_id, robot_id):
+                await websocket.close(code=1008)
+                return
             version = store.version(robot_id)
             if version != last_version:
                 last_version = version
@@ -61,6 +68,14 @@ async def robot_status_ws(websocket: WebSocket, robot_id: str) -> None:
         return
     finally:
         robot_manager.disconnect(websocket, room=robot_id)
+
+
+def _can_read_robot(user_id: str | None, robot_id: str) -> bool:
+    if not user_id:
+        return False
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        return bool(user and user.active and "robots.read" in user.permissions and db.get(Robot, robot_id))
 
 
 def _ws_user_id(websocket: WebSocket) -> str | None:

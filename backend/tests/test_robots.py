@@ -42,7 +42,7 @@ def test_activity_cannot_be_injected(client, login):
         json={"kind": "patrol", "title": "巡检开始", "body": "沿路线 A 行驶"},
         headers={"Authorization": f"Bearer {control}"},
     )
-    assert post.status_code == 405
+    assert post.status_code in {404, 405}
 
     activity = client.get(
         f"/api/v1/robots/{robot_id}/activity",

@@ -15,6 +15,7 @@ import time
 from uuid import uuid4
 
 from .navigation_config import drawing_identity, finite_number, map_key, transform_point, validate_map_goal
+from .lease_bridge import LeaseBridge
 
 TERMINAL = {"idle", "completed", "failed", "cancelled"}
 
@@ -35,8 +36,9 @@ def _write_record(path, value):
 
 
 class NavigationTaskRunner:
-    def __init__(self, node, path="~/.ros/insightrover/navigation-task.json"):
+    def __init__(self, node, path="~/.ros/insightrover/navigation-task.json", *, require_lease=False):
         self.node, self.path = node, Path(path).expanduser()
+        self.require_lease = require_lease
         self.lock = threading.RLock()
         self.operation_lock = asyncio.Lock()
         self.worker = None
@@ -109,7 +111,14 @@ class NavigationTaskRunner:
                 self.state = next_state
             self.state = next_state
 
-    def _context(self):
+    def _lease_valid(self, identity):
+        if not self.require_lease:
+            return True
+        return LeaseBridge(self.node).accepts(identity)
+
+    def _context(self, identity):
+        if not self._lease_valid(identity):
+            raise RuntimeError("控制租约已失效，请核对车辆后重新确认")
         state = self.snapshot()
         snapshot = self.node.map_snapshot.snapshot()
         calibration = self.node.navigation_config.snapshot().get("calibration")
@@ -217,12 +226,15 @@ class NavigationTaskRunner:
             elif ((action == "loaded" and state["state"] == "waiting_load") or
                   (action == "start" and state["state"] == "prepared") or
                   (action == "resume" and state["state"] == "paused")):
-                self._context()
+                identity = payload.get("control_lease")
+                self._context(identity)
+                self._update(control_lease=identity)
                 self._launch()
             elif action == "handover" and state["state"] == "waiting_handover":
                 if state["return_to_start"]:
-                    self._context()
-                    self._update(returning=True)
+                    identity = payload.get("control_lease")
+                    self._context(identity)
+                    self._update(returning=True, control_lease=identity)
                     self._launch()
                 else:
                     self._update(state="completed", message="文件已取走，运输完成", completed_at=time.time())
@@ -250,8 +262,9 @@ class NavigationTaskRunner:
     async def _run(self, epoch):
         try:
             while epoch == self.epoch:
-                self._context()
                 state = self.snapshot()
+                identity = state.get("control_lease")
+                self._context(identity)
                 remaining = state.get('dwell_remaining_sec', 0)
                 if remaining > 0:
                     await self._dwell(epoch, remaining)
@@ -266,7 +279,8 @@ class NavigationTaskRunner:
                                                        "calibration_drawing": state["calibration_drawing"]})
                 if epoch != self.epoch:
                     return
-                started = await self.node.navigation.start({"plan_id": plan["plan_id"]}, guard=lambda: epoch == self.epoch)
+                started = await self.node.navigation.start(
+                    {"plan_id": plan["plan_id"]}, guard=lambda: epoch == self.epoch and self._lease_valid(identity))
                 if epoch != self.epoch:
                     self.node.navigation.cancel()
                     return
@@ -275,6 +289,8 @@ class NavigationTaskRunner:
                 deadline = time.monotonic() + 1800
                 observed_at = time.monotonic()
                 while epoch == self.epoch:
+                    if not self._lease_valid(identity):
+                        raise RuntimeError("控制租约已失效，导航已停止")
                     current_time = time.monotonic()
                     with self.lock:
                         self.state['elapsed_sec'] = self.state.get('elapsed_sec', 0) + current_time - observed_at
@@ -324,7 +340,7 @@ class NavigationTaskRunner:
         self._update(state='dwelling', message='站点停留观察中')
         previous = time.monotonic()
         while remaining > 0 and epoch == self.epoch:
-            self._context()
+            self._context(self.snapshot().get("control_lease"))
             await asyncio.sleep(min(.1, remaining))
             now = time.monotonic()
             delta, previous = now - previous, now

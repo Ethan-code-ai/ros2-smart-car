@@ -12,6 +12,7 @@ import paramiko
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 from insightrover_desktop.config import AppConfig
 from insightrover_desktop.vehicle import VehicleSession, Cancelled, validate_wifi, validate_login, resource
 
@@ -24,7 +25,7 @@ def ssh_car():
     listener.settimeout(.2)
     key = paramiko.RSAKey.generate(2048)
     stop = threading.Event()
-    state = {'mode': None, 'started': 0, 'commands': [], 'script': ''}
+    state = {'mode': None, 'started': 0, 'commands': [], 'script': '', 'auth_error': False}
     transports = []
 
     class Server(paramiko.ServerInterface):
@@ -54,7 +55,9 @@ def ssh_car():
                     state['mode'] = 'stop'
                     channel.sendall(b'CAR_START_REQUESTED\n')
                 elif '/api/status' in command_text:
-                    if state['mode'] is None:
+                    if state['auth_error']:
+                        code = 23
+                    elif state['mode'] is None:
                         code = 1
                     else:
                         channel.sendall(json.dumps({'mode': state['mode']}).encode())
@@ -101,7 +104,9 @@ def test_real_ssh_start_and_existing_task_preserved(tmp_path, ssh_car):
     remote = session(tmp_path, port, confirmation)
     assert remote.start('127.0.0.1', 8080)['mode'] == 'stop'
     assert state['started'] == 1
-    assert 'pkill -INT' in state['script']
+    assert 'unit=smart-car-v4.service' in state['script']
+    assert 'pkill' not in state['script']
+    assert 'systemctl --user stop' not in state['script']
     assert 'systemctl --user start' in state['script']
     assert 'enable --now' not in state['script']
     assert 'hidden=true' not in state['script'].lower()
@@ -127,6 +132,14 @@ def test_wrong_password_never_starts_car(tmp_path, ssh_car):
     remote.password = 'wrong'
     with pytest.raises(paramiko.AuthenticationException):
         remote.start('127.0.0.1', 8080)
+    assert state['started'] == 0
+
+
+def test_rejected_vehicle_credential_does_not_restart_service(tmp_path, ssh_car):
+    port, state, _ = ssh_car
+    state['auth_error'] = True
+    with pytest.raises(RuntimeError, match="车端凭据"):
+        session(tmp_path, port).start("127.0.0.1", 8080)
     assert state['started'] == 0
 
 

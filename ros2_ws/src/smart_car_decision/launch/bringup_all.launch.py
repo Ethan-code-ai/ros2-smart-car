@@ -18,6 +18,11 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
+                "start_yolo_camera",
+                default_value="true",
+                description="Start the legacy auto/follow detector. Disable when using the shared vision service.",
+            ),
+            DeclareLaunchArgument(
                 "start_base_driver",
                 default_value="true",
                 description="Start Yahboom ROSMASTER X3 mecanum chassis driver.",
@@ -137,7 +142,8 @@ def generate_launch_description():
             Node(package="smart_car_decision", executable="laser_obstacle_monitor", name="laser_obstacle_monitor", output="screen", parameters=[params]),
             Node(package="smart_car_decision", executable="decision_controller", name="decision_controller", output="screen", parameters=[params]),
             Node(package="smart_car_decision", executable="tcp_command_bridge", name="tcp_command_bridge", output="screen", parameters=[params]),
-            Node(package="smart_car_decision", executable="yolo11_camera_node", name="yolo11_camera_node", output="screen", parameters=[params]),
+            Node(package="smart_car_decision", executable="yolo11_camera_node", name="yolo11_camera_node", output="screen",
+                 parameters=[params], condition=IfCondition(LaunchConfiguration("start_yolo_camera"))),
             Node(package="smart_car_decision", executable="color_tracker_node", name="color_tracker_node", output="screen", parameters=[params]),
             Node(package="smart_car_decision", executable="object_follow_node", name="object_follow_node", output="screen", parameters=[params]),
             Node(package="smart_car_decision", executable="system_status_node", name="system_status_node", output="screen", parameters=[params]),

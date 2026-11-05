@@ -1,10 +1,13 @@
 flowchart TB
   subgraph PC[Windows 控制台 / 业务服务]
-    UI[智巡助手聊天与任务卡片]
+    UI[可拖动智巡桌宠、对话浮窗与任务卡片]
     API[助手 API：登录、会话与权限]
     ORCH[单助手编排：理解、查资料、生成草案]
     TOOLS[受限 Tool Registry：地点、路线、能力、任务状态]
     CHECK[确定性校验：真实 ID、地图版本、能力与任务冲突]
+    EVIDENCE[管理员实车证据登记：版本绑定、门槛检查与撤销]
+    CONTEXT[后台遥测快照与任务对账]
+    LEASE[单车控制租约与代际]
     CONFIRM[用户确认：绑定计划版本与有效期]
     EXEC[持久化任务执行器：顺序执行、幂等与取消]
     DB[(会话 / 计划 / 执行记录 / 审计)]
@@ -15,9 +18,14 @@ flowchart TB
     ORCH --> CHECK --> CONFIRM --> EXEC --> GATE
     API <--> DB
     EXEC <--> DB
+    EVIDENCE --> CHECK
+    EVIDENCE <--> DB
+    CONTEXT --> TOOLS
+    CONTEXT --> EXEC
+    EXEC --> LEASE --> GATE
     UI --> STOP --> GATE
   end
-  LLM[外部 LLM API：只接收必要文本上下文]
+  LLM[OpenAI-compatible API / DeepSeek：必要文本上下文]
   ORCH <--> LLM
   TOOLS --> GATE
   subgraph CAR[Jetson 车端]
@@ -35,5 +43,6 @@ flowchart TB
   end
   GATE <--> HTTP
   HTTP -.真实状态与结果.-> API
+  HTTP -.遥测与运行身份.-> CONTEXT
   MCP[后续可选 MCP Adapter：复用同一工具注册与权限校验]
   MCP -.不属于首版.-> TOOLS

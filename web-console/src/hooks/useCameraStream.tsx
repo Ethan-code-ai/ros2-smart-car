@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { startCameraPolling } from "../cameraPolling";
+import { vehicleControlRequest } from "../services/businessApi";
 import type { VideoState } from "../videoState";
 
 type Stream = { state: VideoState; attach: (host: HTMLElement) => () => void; start: () => void; reconnect: () => void };
@@ -37,7 +38,7 @@ export function CameraStreamProvider({ children }: { children: ReactNode }) {
       visible: document.visibilityState !== "hidden",
       onState: setState,
       fetchFrame: async signal => {
-        const response = await fetch(`/api/video?frame=true&revision=${generation}`, { signal, cache: "no-store" });
+        const response = await vehicleControlRequest(`/api/video?frame=true&revision=${generation}`, { signal, cache: "no-store" });
         if (!response.ok || !response.headers.get("Content-Type")?.includes("image/jpeg")) throw new Error("camera_frame_unavailable");
         return response.blob();
       },

@@ -93,7 +93,7 @@ class NavigationBridge:
         value.pose.orientation.w = math.cos(goal["yaw"] / 2)
         return value
 
-    async def plan(self, payload):
+    async def plan(self, payload, *, preview_epoch=None):
         with self.lock:
             error = self._health()
             if error:
@@ -149,7 +149,7 @@ class NavigationBridge:
             now = time.monotonic()
             self.plans = {i: p for i, p in self.plans.items() if now - p["created"] < 60}
             self.plans[plan_id] = {**plan, "created": now, "calibration_matrix": calibration_matrix,
-                                   "calibration_drawing": calibration_drawing}
+                                   "calibration_drawing": calibration_drawing, "preview_epoch": preview_epoch}
         return plan
 
     async def start(self, payload, guard=None):
@@ -166,6 +166,11 @@ class NavigationBridge:
             plan = self.plans.get(payload.get("plan_id"))
             if not plan or time.monotonic() - plan["created"] > 60:
                 raise ValueError("路线预览已过期，请重新规划")
+            if plan.get("preview_epoch") is not None:
+                identity = payload.get("control_lease") or {}
+                if plan["preview_epoch"] != (identity.get("controller_id"), identity.get("control_epoch")):
+                    raise RuntimeError("预览期间控制代际已变化，请重新规划")
+                self.plans.pop(plan["plan_id"])
             error = self._health()
             if error:
                 raise RuntimeError(error)
@@ -182,6 +187,7 @@ class NavigationBridge:
             self.started_at = time.monotonic()
             self.active_map_key = plan["map_key"]
             self.state.update(state="starting", message="正在启动导航", goal_id=plan["plan_id"], goal=plan["goal"], path=plan["path"], distance_remaining=plan["distance"])
+            self.state["control_lease"] = payload.get("control_lease")
             self.state["estimated_time_remaining"] = None
             if self.node.set_mode("navigation") != "navigation":
                 self.state.update(state="failed", message="车端拒绝了导航模式")
@@ -202,7 +208,7 @@ class NavigationBridge:
             if not handle.accepted:
                 raise RuntimeError("小车拒绝了导航目标")
             with self.lock:
-                if epoch != self.epoch:
+                if epoch != self.epoch or (guard is not None and not guard()):
                     handle.cancel_goal_async()
                     raise RuntimeError("启动过程已被停止")
                 self.handle = handle
@@ -263,6 +269,12 @@ class NavigationBridge:
         with self.lock:
             if self.state["state"] not in {"starting", "running"}:
                 return
+            identity = self.state.get("control_lease")
+            if identity is not None:
+                from .lease_bridge import LeaseBridge
+                if not LeaseBridge(self.node).accepts(identity):
+                    self.cancel("控制租约已失效，独立导航已停止", failed=True)
+                    return
             error = self._health()
             if error:
                 self.cancel(error, failed=True)

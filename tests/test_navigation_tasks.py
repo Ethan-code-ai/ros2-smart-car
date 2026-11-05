@@ -2,6 +2,7 @@ import asyncio
 import copy
 import json
 import threading
+import time
 from types import SimpleNamespace as NS
 
 import pytest
@@ -96,6 +97,26 @@ def test_delivery_requires_load_and_handover_then_returns(tmp_path):
 
 def payload_pose():
     return {"x": 1., "y": 1., "yaw": .4}
+
+
+def test_navigation_rejects_missing_lease_and_expiry_during_planning(tmp_path):
+    async def scenario():
+        task, node, payload = runner(tmp_path)
+        task.require_lease = True
+        await task.create(payload)
+        with pytest.raises(RuntimeError, match="控制租约"):
+            await task.action({"run_id": "run1", "action": "loaded"})
+        identity = {"controller_id": "controller", "control_epoch": "epoch", "owner": "owner"}
+        node.control_lease_ack = {**identity, "blocked": False, "received_at": time.monotonic()}
+        node.navigation.block = asyncio.Event()
+        await task.action({"run_id": "run1", "action": "loaded", "control_lease": identity})
+        await until(lambda: bool(node.navigation.plans))
+        node.control_lease_ack.update(control_epoch="new", blocked=True)
+        node.navigation.block.set()
+        await until(lambda: task.snapshot()["state"] == "failed")
+        assert node.navigation.starts == []
+
+    asyncio.run(scenario())
 
 
 def test_patrol_cycles_dwell_pause_and_real_odometry(tmp_path):

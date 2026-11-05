@@ -4,6 +4,22 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def vehicle_machine_credentials(monkeypatch):
+    """Test clients represent the trusted host, never an unauthenticated browser."""
+    from starlette.testclient import TestClient
+    token = "test-only-vehicle-machine-token-0001"
+    monkeypatch.setenv("ROBOT_SERVICE_TOKEN", token)
+    original = TestClient.__init__
+
+    def authenticated_init(self, *args, **kwargs):
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers.setdefault("X-InsightRover-Service-Token", token)
+        return original(self, *args, headers=headers, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", authenticated_init)
+
+
 PACKAGE_ROOT = (
     Path(__file__).resolve().parents[1]
     / "ros2_ws"

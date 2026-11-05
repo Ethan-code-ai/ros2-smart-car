@@ -31,13 +31,16 @@ PERMISSIONS = {
     "settings.manage": "管理系统设置",
     "audit.read": "查看审计日志",
     "notifications.read": "查看通知",
+    "assistant.read": "查看自己的助手会话",
+    "assistant.use": "向助手发送消息",
+    "assistant.settings": "管理助手模型启用状态",
 }
 
 ROLES = {
     "viewer": [
         "robots.read", "maps.read", "routes.read", "patrol.read",
         "missions.read", "incidents.read", "analytics.read",
-        "notifications.read",
+        "notifications.read", "assistant.read",
     ],
     "admin": list(PERMISSIONS.keys()),
     "operator": [
@@ -56,6 +59,8 @@ ROLES = {
         "analytics.read",
         "settings.read",
         "notifications.read",
+        "assistant.read",
+        "assistant.use",
     ],
     "auditor": [
         "robots.read",
@@ -68,6 +73,7 @@ ROLES = {
         "settings.read",
         "audit.read",
         "notifications.read",
+        "assistant.read",
     ],
 }
 

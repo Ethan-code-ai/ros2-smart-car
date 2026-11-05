@@ -12,20 +12,20 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from ..core.config import settings
 from ..db.session import SessionLocal
-from ..gateway.robot_gateway import RobotGateway
+from ..gateway.robot_gateway import RobotGateway, get_robot_gateway
 from ..models import AppSetting, Incident, Robot, User
 from .ops import notify_users
 from .storage import get_storage
+from .incident_reports import record_coverage
+from .robot_context import vehicle_binding
 
 pipeline_status = {'state': 'starting', 'message': '等待连接车端异常队列'}
 logger = logging.getLogger(__name__)
 
 
 def get_vehicle_url(db):
-    value = db.scalar(select(AppSetting).where(AppSetting.key == 'robot_web_url'))
-    return (value.value if value else settings.robot_web_url).rstrip('/')
+    return get_robot_gateway(vehicle_binding(db)[1]).base_url
 
 
 def ingest_event(db, robot, event, storage=None):
@@ -81,40 +81,50 @@ def ingest_event(db, robot, event, storage=None):
 
 async def poll_once(session_factory=SessionLocal):
     with session_factory() as db:
-        url = get_vehicle_url(db)
+        robot_id, address = vehicle_binding(db)
+        url = get_robot_gateway(address).base_url
         target = db.scalar(select(AppSetting).where(AppSetting.key == 'safety_robot_id'))
-        robots = db.scalars(select(Robot)).all()
-        robot = db.get(Robot, target.value) if target else robots[0] if len(robots) == 1 else None
+        robot = db.get(Robot, robot_id) if target is None or target.value == robot_id else None
         if not url or not robot:
             pipeline_status.update(state='unavailable', message='需要配置车端地址与唯一的异常上报小车')
             return
-        async with RobotGateway._client(4.) as client:
-            response = await client.get(url + '/api/safety/events')
-            response.raise_for_status()
-            events = response.json()['events']
-            if not isinstance(events, list) or len(events) > 20:
-                raise ValueError('车端异常批次无效')
-            acknowledged = []
-            errors = []
-            for event in events:
-                try:
-                    ingest_event(db, robot, event)
-                    db.commit()
+        try:
+            await _pull_events(db, url, robot)
+        except Exception:
+            db.rollback()
+            record_coverage(db, robot.id, "interrupted")
+            raise
+        record_coverage(db, robot.id, "observed" if pipeline_status["state"] == "running" else "interrupted")
+
+
+async def _pull_events(db, url, robot):
+    async with RobotGateway._client(4.) as client:
+        response = await client.get(url + '/api/safety/events')
+        response.raise_for_status()
+        events = response.json()['events']
+        if not isinstance(events, list) or len(events) > 20:
+            raise ValueError('车端异常批次无效')
+        acknowledged = []
+        errors = []
+        for event in events:
+            try:
+                ingest_event(db, robot, event)
+                db.commit()
+                acknowledged.append(event['event_id'])
+            except IntegrityError:
+                db.rollback()
+                ident = str(uuid5(NAMESPACE_URL, f"safety:{robot.id}:{str(UUID(event['event_id']))}"))
+                if db.get(Incident, ident):
                     acknowledged.append(event['event_id'])
-                except IntegrityError:
-                    db.rollback()
-                    ident = str(uuid5(NAMESPACE_URL, f"safety:{robot.id}:{str(UUID(event['event_id']))}"))
-                    if db.get(Incident, ident):
-                        acknowledged.append(event['event_id'])
-                    else:
-                        errors.append('数据库写入失败，等待补传')
-                except Exception as exc:
-                    db.rollback()
-                    errors.append(str(exc))
-            if acknowledged:
-                result = await client.post(url + '/api/safety/events/ack', json={'event_ids': acknowledged})
-                result.raise_for_status()
-            pipeline_status.update(state='degraded' if errors else 'running', message='；'.join(errors) if errors else '异常证据同步正常')
+                else:
+                    errors.append('数据库写入失败，等待补传')
+            except Exception as exc:
+                db.rollback()
+                errors.append(str(exc))
+        if acknowledged:
+            result = await client.post(url + '/api/safety/events/ack', json={'event_ids': acknowledged})
+            result.raise_for_status()
+        pipeline_status.update(state='degraded' if errors else 'running', message='；'.join(errors) if errors else '异常证据同步正常')
 
 
 async def run_safety_ingest():

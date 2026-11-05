@@ -3,6 +3,27 @@ import test from "node:test";
 
 import { createRobotApi, statusSocketUrl } from "../src/robotApi.ts";
 
+test("manual commands and key release use the same driving identity with increasing sequence", async () => {
+  const bodies: unknown[] = [];
+  const api = createRobotApi(async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    bodies.push(body);
+    return Response.json(body.mode === "manual" ? { ok: true, drive_id: "drive" } : { ok: true });
+  });
+  await assert.rejects(api.sendCommand("forward"), /请先选择/);
+  await api.setMode("manual");
+  await api.sendCommand("forward");
+  await api.sendCommand("stop");
+  await api.sendCommand("turn_l");
+  await api.setMode("stop");
+  await assert.rejects(api.sendCommand("forward"), /请先选择/);
+  assert.deepEqual(bodies, [
+    { mode: "manual" }, { command: "forward", drive_id: "drive", drive_seq: 1 },
+    { command: "stop", drive_id: "drive", drive_seq: 2 }, { command: "turn_l", drive_id: "drive", drive_seq: 3 },
+    { mode: "stop" },
+  ]);
+});
+
 test('vision search uses dedicated endpoints and propagates task identifiers', async()=>{
   const calls:{url:string;body:unknown}[]=[];
   const api=createRobotApi(async(url,init)=>{

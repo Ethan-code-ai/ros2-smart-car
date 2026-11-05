@@ -1,6 +1,7 @@
 """Shared YOLOE supervisor and search task coordinator; never publishes cmd_vel."""
 import asyncio
 import copy
+import hashlib
 import json
 import math
 import multiprocessing as mp
@@ -12,12 +13,13 @@ from uuid import uuid4
 from datetime import datetime, timezone
 
 from .navigation_tasks import _write_record
+from .component_manifest import component_manifest
 from .navigation_config import map_key
 from .safety_events import DetectionTracks, EventGate, SafetyOutbox
 from .vision_search import CLUTTER, Confirmation, associate_clutter, targets, vocabulary_id
 from .yoloe_worker import replace_latest, run
 
-BUILD = 'vision-search-0.3.10'
+BUILD = 'vision-search-4.0.0'
 TERMINAL = {'idle','cancelled','not_found','finished'}
 
 
@@ -42,11 +44,15 @@ class VisionService:
         if previous.exists():
             node.set_mode('stop')
             try:
-                self.search = json.loads(previous.read_text())
-                self.search.update(state='paused', message='车端重启，请结束旧任务后重新创建')
+                self.search = json.loads(previous.read_text(encoding='utf-8'))
+                archived = self._read_run(self.search['run_id']) if self.search.get('run_id') else None
+                if archived:
+                    self.search = archived
+                if self.search['state'] not in TERMINAL:
+                    self._state('fault', '车端重启，旧搜索已停止，请结束后重新创建')
             except Exception:
                 self.search.update(state='fault',message='搜索记录损坏，保持停车')
-        self.status = {'supported':True,'state':'unavailable','message':'等待本地模型','build_id':BUILD,'detections':[], 'mobile_ready':False,'imgsz':self.config['imgsz']}
+        self.status = {'supported':True,'stationary_search_supported':True,'state':'unavailable','message':'等待本地模型','build_id':BUILD,'detections':[], 'mobile_ready':False,'imgsz':self.config['imgsz']}
         if self.config_error:self.status.update(state='error',message='视觉配置无效：'+self.config_error)
         self.confirm = Confirmation()
         self.context = mp.get_context('spawn')
@@ -89,6 +95,30 @@ class VisionService:
         with self.lock:
             return copy.deepcopy(self.search)
 
+    def _run_path(self, ident):
+        if not isinstance(ident, str) or not 1 <= len(ident) <= 128:
+            raise ValueError('搜索请求标识无效')
+        return self.root / 'search-runs' / (hashlib.sha256(ident.encode()).hexdigest() + '.json')
+
+    def _read_run(self, ident):
+        path = self._run_path(ident)
+        try:
+            return json.loads(path.read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            return None
+
+    def search_snapshot_for(self, ident=None):
+        with self.lock:
+            if ident is None or ident == self.search.get('run_id'):
+                return self.search_snapshot()
+            result = self._read_run(ident)
+            if result is None:
+                raise ValueError('车端没有此搜索记录')
+            # An archived run cannot hold the current search lock.
+            if result['state'] not in TERMINAL:
+                result.update(state='fault', message='历史搜索已中止', version=result.get('version', 0) + 1)
+            return result
+
     def settings(self):
         with self.lock:
             return copy.deepcopy(self.config)
@@ -117,13 +147,16 @@ class VisionService:
             return self.settings()
 
     def _state(self, state, message, **values):
-        self.search.update(state=state,message=message,**values)
+        self.search.update(state=state,message=message,version=self.search.get('version', 0)+1,**values)
         try:
+            if self.search.get('run_id'):
+                _write_record(self._run_path(self.search['run_id']), self.search)
             _write_record(self.root/'search.json',self.search)
         except OSError as exc:
             self.search['persistence_error']=str(exc)
             self.desired_gate='hold'
             self.search['state']='fault'
+            self.node.set_mode('stop')
 
     def _gate(self, op):
         ack=getattr(self.node,'search_ack',{})
@@ -150,6 +183,7 @@ class VisionService:
         try:
             certificate=json.loads((self.root/'vision-performance.json').read_text())
             return (certificate.get('build_id')==BUILD and certificate.get('imgsz')==self.config['imgsz']
+                    and certificate.get('source_sha256')==component_manifest()['source_sha256']
                     and self.status.get('state')=='running'
                     and certificate.get('model_sha256')==self.status.get('model_sha256')
                     and bool(certificate.get('model_sha256'))
@@ -160,43 +194,62 @@ class VisionService:
             return False
 
     async def start(self,payload):
+        ident = payload.get('run_id') if 'run_id' in payload else uuid4().hex
+        self._run_path(ident)
+        request = {key: value for key, value in payload.items() if key != 'control_lease'}
+        fingerprint = hashlib.sha256(json.dumps(request, sort_keys=True, allow_nan=False).encode()).hexdigest()
         with self.lock:
+            previous = self.search if ident == self.search.get('run_id') else self._read_run(ident)
+            if previous is not None:
+                if previous.get('request_fingerprint') not in {fingerprint, None} or (
+                        previous.get('request_fingerprint') is None and previous['state'] != 'cancelled'):
+                    raise RuntimeError('同一搜索标识的请求已变化')
+                return self.search_snapshot_for(ident)
             if self.search['state'] not in TERMINAL or not self._stationary():
                 raise RuntimeError('请先停止小车并结束现有搜索任务')
             runner=getattr(self.node,'navigation_tasks',None)
             nav=getattr(self.node,'navigation',None)
             if (runner and runner.active) or (nav and nav.snapshot().get('state') in {'starting','running'}):
                 raise RuntimeError('已有导航或运输任务，不能接管')
-            if not self.config['enabled'] or not self.status.get('mobile_ready') or self.status.get('state')!='running':
-                raise RuntimeError('模型或板端联合性能尚未验收，仅支持静止预览')
-            avoidance=self.node.avoidance_service.snapshot()
-            if not avoidance.get('confirmed') or not avoidance.get('available'):
-                raise RuntimeError('雷达或控制器尚未就绪')
             selected=targets(payload.get('targets'))
-            travel=payload.get('travel','auto')
-            if travel not in {'auto','patrol'}:
-                raise ValueError('搜索方式须为 auto 或 patrol')
+            travel=payload.get('travel','stationary')
+            if travel not in {'stationary','patrol'}:
+                raise ValueError('搜索方式须为静止观察或地图巡逻')
+            if not self.config['enabled'] or self.status.get('state')!='running' or (
+                    travel=='patrol' and not self.status.get('mobile_ready')):
+                raise RuntimeError('模型或板端联合性能尚未就绪')
+            if travel=='patrol':
+                if not runner or not runner._lease_valid(payload.get('control_lease')):
+                    raise RuntimeError('巡逻搜索需要有效的车辆控制租约')
+                avoidance=self.node.avoidance_service.snapshot()
+                if not avoidance.get('confirmed') or not avoidance.get('available'):
+                    raise RuntimeError('雷达或控制器尚未就绪')
             self.loop=asyncio.get_running_loop()
-            self.search={'run_id':uuid4().hex,'state':'preparing','message':'准备目标词表','targets':selected,
-                         'travel':travel,'created_at':time.time()}
+            self.search={'run_id':ident,'request_fingerprint':fingerprint,'targets':selected,
+                         'travel':travel,'control_lease':payload.get('control_lease'),'created_at':time.time()}
             self.confirm=Confirmation(); self.protocol_version=0
-            self.desired_gate='hold'; self.route_id=None
+            self.desired_gate='arm'; self.route_id=ident if travel=='patrol' else None
+            self._state('preparing','准备目标词表')
+            if self.search['state'] != 'preparing':
+                raise RuntimeError('搜索记录无法保存')
             self._gate('arm')
         try:
             if travel=='patrol':
                 if not runner:
                     raise RuntimeError('地图巡逻不可用')
-                spec={**payload.get('patrol',{}),'run_id':self.search['run_id'],'kind':'patrol','cycles':1,'return_to_start':False}
+                spec={**payload.get('patrol',{}),'run_id':ident,'task_id':ident,'kind':'patrol','cycles':1,'return_to_start':False}
                 route=await runner.create(spec)
-                self.route_id=route['run_id']
+                if route.get('state') != 'prepared':
+                    raise RuntimeError('搜索路线已取消或不可用')
             # Require a new inference on this exact vocabulary before movement.
             deadline=time.monotonic()+15
             while time.monotonic()<deadline:
                 with self.lock:
                     ready=(self.status.get('run_id')==self.search['run_id'] and time.monotonic()-self.result_at<.5)
                     ack=getattr(self.node,'search_ack',{})
-                    armed=ack.get('run_id')==self.search['run_id'] and ack.get('active') and ack.get('held')
-                    if self.search['state']!='preparing':
+                    armed=(ack.get('run_id')==ident and ack.get('active') and ack.get('held')
+                           and 0 <= time.monotonic()-ack.get('received_at',0) <= .5)
+                    if self.search.get('run_id') != ident or self.search['state']!='preparing':
                         raise RuntimeError(self.search['message'])
                 if ready and armed:
                     break
@@ -204,59 +257,94 @@ class VisionService:
             else:
                 raise RuntimeError('词表预热或控制器停车确认超时')
             with self.lock:
-                if self.search['state']!='preparing':raise RuntimeError('搜索启动已取消')
+                if self.search.get('run_id') != ident or self.search['state']!='preparing':raise RuntimeError('搜索启动已取消')
+                if travel=='stationary':
+                    if not self._stationary():
+                        raise RuntimeError('车辆静止状态已失效')
+                    self.at=time.monotonic()
+                    self.desired_gate='hold'
+                    self._state('searching','正在静止观察')
+                    return self.search_snapshot()
                 self._gate('resume')
                 self.desired_gate='heartbeat'
             await asyncio.sleep(.15)
             ack=getattr(self.node,'search_ack',{})
-            if ack.get('run_id')!=self.search['run_id'] or ack.get('held'):
+            if ack.get('run_id')!=ident or ack.get('held'):
                 raise RuntimeError('控制器未确认搜索接管')
             with self.lock:
-                if self.search['state']!='preparing':raise RuntimeError('搜索启动已取消')
+                if self.search.get('run_id') != ident or self.search['state']!='preparing':raise RuntimeError('搜索启动已取消')
                 self.at=time.monotonic(); self._state('searching','正在搜索')
+                if self.search['state'] != 'searching':
+                    raise RuntimeError('搜索状态无法保存')
             if travel=='patrol':
-                await runner.action({'run_id':self.route_id,'action':'start'})
-            else:
-                self.node.set_mode('auto')
-            return self.search_snapshot()
-        except Exception:
+                await runner.action({'run_id':ident,'action':'start','control_lease':payload.get('control_lease')})
+            return self.search_snapshot_for(ident)
+        except (Exception, asyncio.CancelledError):
             with self.lock:
-                if self.search['state'] not in TERMINAL:
+                if self.search.get('run_id') == ident and self.search['state'] not in TERMINAL:
                     self._hold('fault','搜索启动失败，请结束后重试')
             raise
 
     async def action(self,value):
         with self.lock:
-            if value.get('run_id')!=self.search.get('run_id'):
+            ident, action = value.get('run_id'), value.get('action')
+            if ident!=self.search.get('run_id'):
+                if action == 'cancel':
+                    result = self._read_run(ident)
+                    if result is not None:
+                        return self.search_snapshot_for(ident)
+                    result = {'run_id':ident,'state':'cancelled','version':1,'message':'未派发的搜索已取消'}
+                    _write_record(self._run_path(ident), result)
+                    return result
                 raise RuntimeError('搜索任务已变化，请刷新')
-            action=value.get('action')
+            if action in {'cancel','finish'} and self.search['state'] in TERMINAL:
+                return self.search_snapshot()
+            route_id = self.route_id
             if action=='pause' and self.search['state']=='searching':
                 self._hold('paused','搜索已暂停')
             elif action in {'cancel','finish'}:
                 self._hold('cancelled' if action=='cancel' else 'finished','搜索已结束')
                 # Keep latch until physical standstill; supervisor releases later.
             elif action in {'resume','continue'} and self.search['state'] in {'paused','found'}:
-                if not self.config['enabled'] or not self._stationary() or not self.status.get('mobile_ready') or time.monotonic()-self.result_at>.5:
+                stationary = self.search['travel']=='stationary'
+                if not self.config['enabled'] or not self._stationary() or (
+                        not stationary and not self.status.get('mobile_ready')) or time.monotonic()-self.result_at>.5:
                     raise RuntimeError('请等待车辆静止和视觉恢复')
                 self.confirm=Confirmation(); self.wait_absence=True; self.absent_since=None
+                if stationary:
+                    ack = getattr(self.node,'search_ack',{})
+                    if ack.get('run_id') != ident or not ack.get('active') or not ack.get('held') or time.monotonic()-ack.get('received_at',0)>.5:
+                        raise RuntimeError('控制器停车锁尚未确认')
+                    self.at=time.monotonic()
+                    self._state('searching','继续静止观察')
+                    return self.search_snapshot()
+                if not self.node.navigation_tasks._lease_valid(value.get('control_lease')):
+                    raise RuntimeError('巡逻搜索需要新的车辆控制租约')
                 self._gate('resume'); self.desired_gate='heartbeat'
-                self.at=time.monotonic(); self._state('searching','继续搜索，等待原目标离开画面')
+                self.at=time.monotonic(); self._state('searching','继续搜索，等待原目标离开画面',
+                                                     control_lease=value.get('control_lease'))
             else:
                 raise RuntimeError('当前阶段不支持此操作')
-        if action in {'cancel','finish'} and self.route_id:
+        if action in {'cancel','finish'} and route_id:
             runner=self.node.navigation_tasks
-            if runner.snapshot().get('run_id')==self.route_id:
-                await runner.action({'run_id':self.route_id,'action':'cancel'})
+            await runner.action({'run_id':route_id,'task_id':route_id,'kind':'patrol','action':'cancel'})
         if action in {'resume','continue'}:
             await asyncio.sleep(.15)
             ack=getattr(self.node,'search_ack',{})
-            if ack.get('run_id')!=self.search['run_id'] or ack.get('held'):
-                with self.lock:self._hold('fault','恢复搜索未获控制器确认')
-                raise RuntimeError('控制器未确认恢复')
-            if self.search['travel']=='patrol':
-                await self.node.navigation_tasks.action({'run_id':self.route_id,'action':'resume'})
-            else:self.node.set_mode('auto')
-        return self.search_snapshot()
+            with self.lock:
+                if self.search.get('run_id') != ident or self.search['state'] != 'searching':
+                    raise RuntimeError('搜索恢复已取消')
+                if ack.get('run_id') != ident or ack.get('held'):
+                    self._hold('fault','恢复搜索未获控制器确认')
+                    raise RuntimeError('控制器未确认恢复')
+            try:
+                await self.node.navigation_tasks.action({'run_id':route_id,'action':'resume','control_lease':value.get('control_lease')})
+            except Exception:
+                with self.lock:
+                    if self.search.get('run_id') == ident and self.search['state'] == 'searching':
+                        self._hold('fault','巡逻恢复失败，已停止搜索')
+                raise
+        return self.search_snapshot_for(ident)
 
     def _result(self,item):
         if 'error' in item:
@@ -344,6 +432,36 @@ class VisionService:
         clutter=self.config['clutter_prompts'] if self.config['clutter_enabled'] else []
         return list(dict.fromkeys(selected+clutter)) or ['object']
 
+    def _supervise_search(self, now):
+        ack = getattr(self.node, 'search_ack', {})
+        stationary = self.search['travel'] == 'stationary'
+        if (ack.get('run_id') != self.search['run_id'] or ack.get('active') is not True
+                or not 0 <= now - ack.get('received_at', 0) <= .5
+                or ack.get('held') is not stationary):
+            self._hold('paused', '控制器搜索确认失效，已停止')
+        elif now-self.result_at > 1:
+            self._hold('paused', '视觉超时，搜索已暂停')
+        elif stationary:
+            if not self._stationary():
+                self._hold('paused', '静止状态失效，搜索已暂停')
+            elif now-self.at >= 300:
+                self._hold('not_found', '静止观察结束，本次未找到目标')
+        else:
+            route = self.node.navigation_tasks.snapshot()
+            phase = route.get('state')
+            if route.get('run_id') != self.route_id or phase in {'failed','cancelled'}:
+                self._hold('fault', '巡逻执行已中断')
+            elif phase == 'completed':
+                self._hold('not_found', '巡逻结束，本次未找到目标')
+            elif phase == 'paused':
+                self._hold('paused', '巡逻已暂停')
+            elif self.node.store.snapshot().get('mode') != 'navigation' and now-self.at > .5:
+                nav = self.node.navigation.snapshot()
+                arriving = nav.get('state') == 'succeeded' and nav.get('goal_id') == route.get('goal_id')
+                if self.node.store.snapshot().get('mode') != 'stop' or (
+                        phase not in {'planning', 'dwelling'} and not arriving):
+                    self._hold('paused', '驾驶模式变化，搜索已暂停')
+
     def _run(self):
         checked=0.
         while not self.stop.wait(.05):
@@ -355,20 +473,7 @@ class VisionService:
                     active=self.search['state'] in {'preparing','searching','stopping','found','paused','fault'}
                     if active:self._gate(self.desired_gate)
                     if self.search['state']=='searching':
-                        ack=getattr(self.node,'search_ack',{})
-                        if ack.get('run_id')!=self.search['run_id'] or now-ack.get('received_at',0)>.5 or ack.get('held'):
-                            self._hold('paused','控制器搜索确认失效，已停止')
-                        elif now-self.result_at>1:
-                            self._hold('paused','视觉超时，搜索已暂停')
-                        elif self.search['travel']=='auto' and now-self.at>=300:
-                            self._hold('not_found','搜索超时，未找到目标')
-                        elif (self.node.store.snapshot().get('mode') not in {'auto','navigation'} and now-self.at>.5
-                              and not (self.route_id and self.node.navigation_tasks.snapshot().get('state')=='planning' and now-self.at<30)):
-                            self._hold('paused','驾驶模式变化，搜索已暂停')
-                        elif self.route_id:
-                            state=self.node.navigation_tasks.snapshot()
-                            if state.get('run_id')!=self.route_id or state.get('state') in {'failed','cancelled','completed'}:
-                                self._hold('not_found' if state.get('state')=='completed' else 'fault','巡逻已结束')
+                        self._supervise_search(now)
                     if self.search['state']=='stopping':
                         self.settled=now if self._stationary() and self.settled is None else self.settled
                         if not self._stationary():self.settled=None

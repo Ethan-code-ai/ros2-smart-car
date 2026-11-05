@@ -35,15 +35,20 @@ def test_missing_or_expired_telemetry_is_unknown():
     assert fresh["source"] == "realtime"
 
 
-def test_simulation_endpoints_removed(client):
-    assert client.post("/api/v1/robots/physical/simulate",json={}).status_code == 404
-    assert client.post("/api/v1/robots/physical/activity",json={}).status_code == 405
+def test_simulation_endpoints_removed(client, login):
+    headers = {"Authorization": "Bearer " + login("operator", "operator123")}
+    # The authenticated compatibility catch-all rejects unknown write paths.
+    assert client.post("/api/v1/robots/physical/simulate", json={}, headers=headers).status_code == 404
+    assert client.post("/api/v1/robots/physical/activity", json={}, headers=headers).status_code == 404
+    assert "/api/v1/robots/{robot_id}/simulate" not in client.get("/openapi.json").json()["paths"]
 
 
 @pytest.mark.parametrize("accepted", [False, True])
 def test_commands_do_not_change_observed_state(client,login,seeded_db,monkeypatch,accepted):
     from app.api.routes import robots
     robot = Robot(id="failed-control-physical",name="Actual",serial="ACTUAL-TEST",status="offline",mode="stop",battery=0,speed=0)
+    from app.services import control_access
+    monkeypatch.setattr(control_access, "vehicle_binding", lambda db: (robot.id, ""))
     seeded_db.add(robot)
     seeded_db.commit()
     store = get_realtime_store()
@@ -72,6 +77,8 @@ def test_commands_do_not_change_observed_state(client,login,seeded_db,monkeypatc
 def test_accepted_request_without_telemetry_stays_unknown(client,login,seeded_db,monkeypatch):
     from app.api.routes import robots
     robot = Robot(id="no-telemetry",name="No telemetry",serial="NO-TELEMETRY",status="offline",mode="stop")
+    from app.services import control_access
+    monkeypatch.setattr(control_access, "vehicle_binding", lambda db: (robot.id, ""))
     seeded_db.add(robot)
     seeded_db.commit()
     class Gateway:

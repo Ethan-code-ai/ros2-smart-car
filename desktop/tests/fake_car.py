@@ -1,13 +1,24 @@
 """Local acceptance fixture; never connects to a vehicle."""
-import asyncio,sys,time
+import asyncio,os,sys,time
 from fastapi import FastAPI,WebSocket,Request
-from fastapi.responses import Response,StreamingResponse
+from fastapi.responses import JSONResponse,Response,StreamingResponse
 app=FastAPI()
+token = os.environ.get("ROBOT_SERVICE_TOKEN")
+
+@app.get('/health')
+def health():
+    return {"ok": True}
+
+@app.middleware("http")
+async def verify_machine(request, call_next):
+    if request.url.path != "/health" and token and request.headers.get("X-InsightRover-Service-Token") != token:
+        return JSONResponse({"detail": "test fixture requires machine credentials"}, status_code=401)
+    return await call_next(request)
 avoidance={'supported':True,'confirmed':True,'available':True,'state':'idle','reason':'fixture',
            'settings':{'enabled':True,'trigger_distance_m':.6}}
 @app.get('/api/status')
 def status():
-    return {'mode':'stop','network':'connected','updated_at':time.time(),'emergency_stop':False,
+    return {'mode':'stop','network':'connected','updated_at':time.time(),'emergency_stop':False,'ros2_status_age_sec':0.1,
             'lidar':{'ok':True},'odom':{'ok':True},'tf':{'ok':True},'motion_settings':{'turn_speed':.15,'max_laser_range':3.},
             'avoidance':avoidance}
 @app.get('/api/avoidance')
@@ -28,6 +39,9 @@ def stream():
     return StreamingResponse(parts(),media_type='multipart/x-mixed-replace; boundary=frame')
 @app.websocket('/ws/status')
 async def socket(ws:WebSocket):
+    if token and ws.headers.get("X-InsightRover-Service-Token") != token:
+        await ws.close(code=4401)
+        return
     await ws.accept()
     try:
         while True:await ws.send_json(status());await asyncio.sleep(.1)

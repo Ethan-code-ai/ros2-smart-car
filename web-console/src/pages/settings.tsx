@@ -1,13 +1,43 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useData } from "../hooks/useData";
 import { useBusinessSession } from "../hooks/useBusinessSession";
 import { adapters } from "../services/adapters";
 import { EmptyState, Panel } from "../components/ui";
 import { ObjectHeader } from "../components/shared";
+import { businessApi } from "../services/businessApi";
 const sections = ["个人中心", "用户管理", "角色与权限", "通知记录", "审计日志", "系统说明"];
 export function SettingsPage() {
   const [section, setSection] = useState(sections[0]);
-  return <div className="page"><ObjectHeader kicker="Settings" title="系统设置" subtitle="当前账户及业务服务保存的管理记录"/><div className="settings-layout"><nav className="settings-nav">{sections.map(s => <button key={s} className={s === section ? "on" : ""} onClick={() => setSection(s)}>{s}</button>)}</nav><div className="settings-content"><SettingsSection section={section}/></div></div></div>;
+  const session = useBusinessSession();
+  const canManageAssistant = session?.user.role?.permissions.some(p => p.name === "assistant.settings");
+  const visibleSections = canManageAssistant ? [...sections, "智巡助手"] : sections;
+  return <div className="page"><ObjectHeader kicker="Settings" title="系统设置" subtitle="当前账户及业务服务保存的管理记录"/><div className="settings-layout"><nav className="settings-nav">{visibleSections.map(s => <button key={s} className={s === section ? "on" : ""} onClick={() => setSection(s)}>{s}</button>)}</nav><div className="settings-content">{section === "智巡助手" && canManageAssistant ? <AssistantSettings /> : <SettingsSection section={section}/>}</div></div></div>;
+}
+
+function AssistantSettings() {
+  const [value, setValue] = useState<{enabled: boolean; configured: boolean} | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    businessApi.assistantSettings().then(result => { if (active) setValue(result); })
+      .catch(error => { if (active) setError(error.message); });
+    return () => { active = false; };
+  }, []);
+  async function toggle() {
+    if (!value) return;
+    setPending(true);
+    setError("");
+    try { setValue(await businessApi.setAssistantEnabled(!value.enabled)); }
+    catch (error) { setError((error as Error).message); }
+    finally { setPending(false); }
+  }
+  return <Panel title="智巡助手">
+    <p>{!value ? "正在读取配置" : value.configured ? (value.enabled ? "助手已启用" : "模型已配置，助手已停用") : "尚未配置模型连接"}</p>
+    <button type="button" className="btn btn-outline" disabled={pending || !value || (!value.enabled && !value.configured)}
+      onClick={() => void toggle()}>{value?.enabled ? "停用助手" : "启用助手"}</button>
+    {error && <p role="alert">{error}</p>}
+  </Panel>;
 }
 function SettingsSection({ section }: { section: string }) {
   const session = useBusinessSession();

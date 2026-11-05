@@ -6,14 +6,17 @@ MinIO 用于保存证据图片、地图等非结构化资产的约定。
 from __future__ import annotations
 
 import threading
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from ..core.config import settings
 
 
 def normalize_key(key: str) -> str:
-    cleaned = (key or "").strip().lstrip("/").replace("\\", "/")
-    if not cleaned or ".." in cleaned.split("/"):
+    cleaned = (key or "").strip().replace("\\", "/")
+    parts = cleaned.split("/")
+    if (not cleaned or cleaned.startswith("/") or PureWindowsPath(cleaned).drive
+            or any(part in {"", ".", ".."} or part.endswith((" ", ".")) or PureWindowsPath(part).is_reserved() for part in parts)
+            or any(ord(char) < 32 or char in ':*?"<>|' for char in cleaned)):
         raise ValueError("非法的资源 key")
     return cleaned
 
@@ -49,7 +52,11 @@ class LocalStorageService(StorageService):
 
     def _path(self, key: str) -> Path:
         safe = normalize_key(key)
-        return self.root / safe
+        root = self.root.resolve()
+        path = (root / safe).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("资源路径超出存储目录")
+        return path
 
     def presign_upload(self, key: str, *, expires_in: int = 900) -> dict:
         safe = normalize_key(key)

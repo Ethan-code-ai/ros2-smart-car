@@ -527,6 +527,70 @@ def create_app(
 ):
     """构造车端 FastAPI 应用（不依赖 ROS2，便于测试）。"""
     app = FastAPI(title="InsightRover 车端 Web Node", version=SERVICE_VERSION)
+    from .service_auth import ServiceAuthentication
+    app.add_middleware(ServiceAuthentication)
+    from .lease_bridge import LeaseBridge
+    lease_bridge = LeaseBridge(node)
+
+    @app.post("/api/stop")
+    async def stop_execution():
+        from .stop_service import stop_vehicle
+        return await stop_vehicle(node)
+
+    def require_operator_lease(payload, mode):
+        identity = payload.get("control_lease")
+        if not lease_bridge.accepts(identity, purpose=mode):
+            raise HTTPException(409, "车辆驾驶控制权已失效")
+        return identity
+
+    drive_cursor = (None, 0)
+
+    async def apply_vehicle_control(payload, request):
+        nonlocal drive_cursor
+        if not hasattr(node, "control_lease_ack"):
+            return apply_control_request(node, request)
+        target, value = request["target"], request["value"]
+        if target == "manual_cmd" and (value != "stop" or "control_lease" in payload):
+            current = node.store.snapshot()
+            mode = current.get("mode")
+            if mode not in ("manual", "mapping") or current.get("emergency_stop"):
+                raise HTTPException(409, "当前状态不允许手动驾驶")
+            mapping = getattr(node, "mapping_restart", None)
+            if value != "stop" and mode == "mapping" and mapping and mapping.snapshot()["state"] != "ready":
+                raise HTTPException(409, "建图正在初始化")
+            identity = require_operator_lease(payload, mode)
+            seq = payload.get("drive_seq")
+            if type(seq) is not int or not 1 <= seq <= 2**53 - 1:
+                raise HTTPException(422, "驾驶指令序号无效")
+            key = (identity["controller_id"], identity["control_epoch"], identity["owner"])
+            if drive_cursor[0] == key and seq <= drive_cursor[1]:
+                raise HTTPException(409, "已收到更新的驾驶指令")
+            drive_cursor = (key, seq)
+            command = _node_call(node, "set_command", value, {**identity, "drive_seq": seq})
+            return {"ok": command == value, "target": target, "command": command}
+        if target in ("manual_cmd", "mode") and value == "stop":
+            result = await stop_execution()
+            return {"ok": result["controller_confirmed"], "mode" if target == "mode" else "command": "stop", **result}
+        if target == "mode":
+            if value not in ("manual", "mapping"):
+                raise HTTPException(409, "此模式须通过对应任务入口操作")
+            require_operator_lease(payload, value)
+        elif target != "emergency_stop":
+            raise HTTPException(409, "请通过对应的业务操作入口")
+        return apply_control_request(node, request)
+
+    @app.get("/api/control-lease")
+    def control_lease_status():
+        return lease_bridge.snapshot()
+
+    @app.post("/api/control-lease")
+    async def control_lease_request(payload: dict = Body(...)):
+        try:
+            return await lease_bridge.request(payload)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from exc
     static_path = Path(static_dir) if static_dir else None
 
     if static_path is not None and static_path.is_dir():
@@ -567,10 +631,28 @@ def create_app(
 
     def navigation_status_snapshot():
         snapshot = node.store.snapshot()
+        from .component_manifest import component_manifest
+        from .navigation_config import map_key
+        snapshot["component_manifest"] = component_manifest()
+        relative = dict(getattr(node, "relative_odom", {}))
+        if relative:
+            received = relative.pop("received_at")
+            relative["age_sec"] = relative.pop("source_age_sec") + time.monotonic() - received
+            relative["ok"] = 0 <= relative["age_sec"] <= .5
+            relative["cruise_speed_mps"] = getattr(node, "control_lease_ack", {}).get("linear_cruise_speed_mps")
+            relative["supported"] = getattr(node, "control_lease_ack", {}).get("bounded_forward_supported") is True
+        snapshot["relative_motion"] = relative
+        grid = getattr(node, "map_snapshot", None)
+        grid = grid.snapshot() if grid else None
+        try:
+            snapshot["active_map_key"] = map_key(grid) if grid else None
+        except (KeyError, TypeError, ValueError):
+            snapshot["active_map_key"] = None
         avoidance = getattr(node, 'avoidance_service', None)
         if avoidance is not None:
             snapshot['avoidance'] = avoidance.snapshot()
         vision = getattr(node, 'vision_service', None)
+        snapshot['control_lease'] = getattr(node, 'control_lease_ack', {})
         if vision is not None:
             snapshot['vision'] = vision.snapshot()
             snapshot['search'] = vision.search_snapshot()
@@ -582,6 +664,12 @@ def create_app(
         if mapping is not None and callable(getattr(mapping, "snapshot", None)):
             snapshot["mapping"] = mapping.snapshot()
         bridge = getattr(node, "navigation", None)
+        runner = getattr(node, "navigation_tasks", None)
+        if runner is not None:
+            task = runner.snapshot()
+            snapshot["navigation_task"] = {
+                key: task.get(key) for key in ("run_id", "task_id", "kind", "state")
+            }
         snapshot["navigation"] = bridge.snapshot() if bridge else {
             "ready": False, "state": "idle", "message": "车端 Nav2 尚未安装或启动",
             "goal_id": None, "goal": None, "path": [], "distance_remaining": None,
@@ -638,8 +726,13 @@ def create_app(
         return Response(frame,media_type='image/jpeg',headers={'Cache-Control':'no-store'})
 
     @app.get('/api/search')
-    def search_status():
-        return vision_component().search_snapshot()
+    def search_status(run_id: str | None = None):
+        if run_id is None:
+            return vision_component().search_snapshot()
+        try:
+            return vision_component().search_snapshot_for(run_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post('/api/search/start',status_code=202)
     async def start_search(payload:dict=Body(...)):
@@ -734,6 +827,16 @@ def create_app(
     def navigation_config():
         return navigation_component("navigation_config").snapshot()
 
+    @app.post("/api/navigation/resolve-resources")
+    def resolve_navigation_resources(payload: dict = Body(...)):
+        from .resource_resolution import resolve_resources
+        try:
+            maps = getattr(node, "navigation_map", node.map_snapshot)
+            return resolve_resources(payload, navigation_component("navigation_config").snapshot(),
+                                     maps.snapshot(), getattr(node, "navigation_radius", .25))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise navigation_error(exc) from exc
+
     @app.get("/api/navigation/runtime")
     def navigation_runtime():
         return navigation_component("navigation_runtime").snapshot()
@@ -816,7 +919,13 @@ def create_app(
             runner = getattr(node, "navigation_tasks", None)
             if runner and runner.active:
                 raise RuntimeError("已有运输或巡航任务，请先暂停或取消任务")
-            return await navigation_component("navigation").plan(payload)
+            bridge = navigation_component("navigation")
+            if hasattr(node, "control_lease_ack"):
+                live = lease_bridge.snapshot()
+                if not live["fresh"] or not live.get("controller_id") or not live.get("control_epoch"):
+                    raise RuntimeError("控制器回执未确认，暂不能生成独立导航预览")
+                return await bridge.plan(payload, preview_epoch=(live["controller_id"], live["control_epoch"]))
+            return await bridge.plan(payload)
         except (ValueError, TypeError, KeyError, RuntimeError, TimeoutError) as exc:
             raise navigation_error(exc) from exc
 
@@ -826,7 +935,17 @@ def create_app(
             runner = getattr(node, "navigation_tasks", None)
             if runner and runner.active:
                 raise RuntimeError("已有运输或巡航任务，请先取消任务")
-            return await navigation_component("navigation").start(payload)
+            bridge = navigation_component("navigation")
+            if hasattr(node, "control_lease_ack"):
+                identity = payload.get("control_lease")
+                if not lease_bridge.accepts(identity):
+                    raise RuntimeError("独立导航需要有效的控制租约")
+                with bridge.lock:
+                    plan = bridge.plans.get(payload.get("plan_id"))
+                    if plan is None or plan.get("preview_epoch") is None:
+                        raise RuntimeError("独立导航需要已绑定控制代际的预览")
+                return await bridge.start(payload, guard=lambda: lease_bridge.accepts(identity))
+            return await bridge.start(payload)
         except (ValueError, TypeError, KeyError, RuntimeError, TimeoutError) as exc:
             raise navigation_error(exc) from exc
 
@@ -921,7 +1040,9 @@ def create_app(
         return {"ok": True, "settings": settings}
 
     @app.post("/api/mapping/restart")
-    def restart_mapping():
+    def restart_mapping(payload: dict | None = Body(default=None)):
+        if hasattr(node, "control_lease_ack"):
+            require_operator_lease(payload or {}, "mapping")
         runner = getattr(node, "navigation_tasks", None)
         if runner and runner.active:
             raise HTTPException(status_code=409, detail="请先取消运输或巡航任务再建图")
@@ -944,6 +1065,8 @@ def create_app(
                 _node_call(node, "set_mode", "stop")
                 if runtime and runtime.snapshot().get("digest"):
                     runtime.stop()
+                if hasattr(node, "control_lease_ack"):
+                    require_operator_lease(payload or {}, "mapping")
                 _node_call(node, "set_mode", "mapping")
                 config = getattr(node, "navigation_config", None)
                 if config is not None:
@@ -974,7 +1097,7 @@ def create_app(
             request = normalize_command_request(payload or {})
         except WebRequestError as exc:
             raise _reject(exc) from exc
-        return apply_control_request(node, request)
+        return await apply_vehicle_control(payload or {}, request)
 
     @app.post("/api/mode")
     async def mode(payload: dict | None = Body(default=None)):
@@ -982,7 +1105,7 @@ def create_app(
             requested = normalize_mode_request(payload or {})
         except WebRequestError as exc:
             raise _reject(exc) from exc
-        return apply_control_request(node, {"target": "mode", "value": requested})
+        return await apply_vehicle_control(payload or {}, {"target": "mode", "value": requested})
 
     @app.post("/api/emergency-stop")
     async def emergency_stop(payload: dict | None = Body(default=None)):
@@ -1099,13 +1222,14 @@ def create_app(
                     await websocket.send_json({"ok": False, "detail": exc.detail})
                     continue
                 try:
-                    result = apply_control_request(node, request)
+                    result = await apply_vehicle_control(payload, request)
                     await websocket.send_json({"ok": result["ok"], "command": result.get("command", request["value"])})
                 except HTTPException as exc:
                     await websocket.send_json({"ok": False, "detail": exc.detail})
         except WebSocketDisconnect:
             log_message(node, "info", "WebSocket /ws/control 已断开")
-            _node_call(node, "set_command", "stop")
+            if not hasattr(node, "control_lease_ack"):
+                _node_call(node, "set_command", "stop")
 
     return app
 

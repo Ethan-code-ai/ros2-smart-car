@@ -22,6 +22,7 @@ from .avoidance import AvoidanceController, ScanEvidence, ZERO, wrap
 from .avoidance_settings import AvoidanceSettings, validate_settings
 from .footprint import Rectangle
 from .search_control import SearchGate
+from .control_lease import ControlLease
 from .scan_provenance import visibility
 from .scan_health import ScanHealth
 
@@ -92,6 +93,10 @@ class DecisionController(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.publisher = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self.control_lease = ControlLease()
+        self.lease_status_pub = self.create_publisher(String, '/robot/control_lease/status', 10)
+        self.create_subscription(String, '/robot/control_lease/request', self.on_control_lease, 10)
+        self.create_timer(.1, self.publish_control_lease)
         self.search_status_pub = self.create_publisher(String, '/robot/search/status', 10)
         self.create_subscription(String, '/robot/search/control', self.on_search_control, 10)
         self.create_timer(.1, self.publish_search_status)
@@ -381,25 +386,42 @@ class DecisionController(Node):
             self.update_follow_target('object_follow', False)
 
     def on_manual_command(self, msg):
-        command = normalize_command(msg.data)
+        now = time.monotonic()
+        lease = getattr(self, 'control_lease', None)
+        if lease is not None and msg.data != 'stop':
+            try:
+                intent = json.loads(msg.data)
+            except (ValueError, TypeError):
+                return
+            if not lease.accepts_drive(intent, now, self.mode):
+                return
+            command = normalize_command(intent.get('command'))
+        else:
+            command = normalize_command(msg.data)
         if command != self.manual_command:
             self.avoidance.reset()
         self.manual_command = command
-        self.last_manual_time = time.monotonic()
+        self.last_manual_time = now
         self.operator_stop = self.manual_command == 'stop'
         if self.operator_stop:
             self.avoidance.reset()
 
     def on_mode(self, msg):
-        if self.mode != normalize_mode(msg.data):
+        next_mode = normalize_mode(msg.data)
+        if self.mode != next_mode:
+            lease = getattr(self, "control_lease", None)
+            if lease is not None and self.mode in ("manual", "mapping") and lease.purpose == self.mode:
+                lease.revoke("operator_mode_changed")
+            self.manual_command = 'stop'
+            self.last_manual_time = 0.0
             self.navigation_motion = None
             self.last_navigation_time = 0.0
             self.operator_stop = False
             self.avoidance.reset()
-            if normalize_mode(msg.data) in self.follow_targets:
-                self.follow_targets[normalize_mode(msg.data)] = (False, 0.0)
+            if next_mode in self.follow_targets:
+                self.follow_targets[next_mode] = (False, 0.0)
                 self.last_lane_time = 0.0
-        self.mode = normalize_mode(msg.data)
+        self.mode = next_mode
 
     def on_navigation_command(self, msg):
         if self.mode != "navigation":
@@ -409,6 +431,8 @@ class DecisionController(Node):
 
     def on_emergency_stop(self, msg):
         self.emergency_stop = bool(msg.data)
+        if self.emergency_stop and getattr(self, 'control_lease', None) is not None:
+            self.control_lease.revoke('emergency_stop')
 
     def on_speed_scale(self, msg):
         self.speed_scale = max(0.0, min(1.0, float(msg.data)))
@@ -457,7 +481,9 @@ class DecisionController(Node):
             apply_obstacle_stop=False,
         )
         gate = getattr(self, 'search_gate', None)
-        if self.operator_stop or self.emergency_stop or (gate is not None and gate.blocked(now)):
+        lease = getattr(self, 'control_lease', None)
+        lease_blocked = lease is not None and (lease.blocked(now) or lease.purpose != self.mode)
+        if self.operator_stop or self.emergency_stop or (gate is not None and gate.blocked(now)) or lease_blocked:
             motion = dict(ZERO)
         if self.mode in self.follow_targets:
             valid, observed_at = self.follow_targets[self.mode]
@@ -473,10 +499,42 @@ class DecisionController(Node):
                     confirmed=self.avoidance_confirmed and not self.avoidance_config.error,
                     legacy_stop=self.mode_obstacle_stop_distances.get(self.mode, self.obstacle_stop_distance),
                     actual_speed=self.actual_speed)
+        # The final gate also prevents avoidance manoeuvres continuing after expiry.
+        if lease_blocked:
+            motion = dict(ZERO)
+        limit = getattr(lease, "forward_limit_mps", None)
+        if limit is not None:
+            # A bounded forward task never follows an avoidance sidestep or turn.
+            if motion["linear_x"] < 0 or abs(motion["linear_y"]) > 1e-9 or abs(motion["angular_z"]) > 1e-9:
+                motion = dict(ZERO)
+            else:
+                motion["linear_x"] = min(motion["linear_x"], limit)
         twist.linear.x = motion["linear_x"]
         twist.linear.y = motion["linear_y"]
         twist.angular.z = motion["angular_z"]
         self.publisher.publish(twist)
+
+    def on_control_lease(self, message):
+        try:
+            now = time.monotonic()
+            stationary = (not self.emergency_stop and self.mode == 'stop' and 0 <= now-self.odom_at < .5 and self.actual_speed < .01
+                          and abs(getattr(self, 'actual_angular_speed', 1.)) < .02)
+            request = json.loads(message.data)
+            if self.control_lease.update(request, now, stationary) and request["op"] != "renew":
+                self.manual_command = "stop"
+                self.last_manual_time = 0.0
+                self.navigation_motion = None
+                self.last_navigation_time = 0.0
+                self.avoidance.reset()
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+    def publish_control_lease(self):
+        message = String()
+        value = self.control_lease.snapshot(time.monotonic())
+        value["linear_cruise_speed_mps"] = self.cruise_speed
+        message.data = json.dumps(value, allow_nan=False)
+        self.lease_status_pub.publish(message)
 
     def on_search_control(self, message):
         try:

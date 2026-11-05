@@ -13,10 +13,15 @@ import { AssetsPage } from "./pages/assets";
 import { SettingsPage } from "./pages/settings";
 import { EmptyState } from "./components/ui";
 import { SlamPage } from "./pages/slam";
+import { AssistantPet } from "./components/AssistantPet";
+import { AssistantConversation } from "./components/AssistantConversation";
+import { useBusinessSession } from "./hooks/useBusinessSession";
+import { AssistantReportPage } from "./pages/assistantReport";
 
 function renderRoute(path: string) {
   let params: Record<string, string> | null;
   if (path === "/") return <HomePage />;
+  if ((params = matchRoute("/assistant/reports/:id", path))) return <AssistantReportPage id={params.id} />;
   if (path === "/slam") return <SlamPage />;
   if (path === "/robots") return <RobotsPage />;
   if ((params = matchRoute("/robots/:id/run", path))) return <RobotRunPage id={params.id} />;
@@ -40,7 +45,16 @@ function renderRoute(path: string) {
   );
 }
 
+function AssistantHistory() {
+  const session = useBusinessSession();
+  if (!session?.user.role?.permissions.some(p => p.name === "assistant.read")) {
+    return <div className="page"><EmptyState title="无权查看助手历史" /></div>;
+  }
+  return <div className="page"><h1>助手历史</h1><AssistantConversation canSend={false} /></div>;
+}
+
 export default function App() {
+  const session = useBusinessSession();
   const requestedPath = usePath();
   const path = requestedPath === "/radar" ? "/slam" : requestedPath;
   useEffect(() => {
@@ -51,7 +65,8 @@ export default function App() {
   return (
     <div className="app-root">
       <GlobalHeader />
-      <main className="app-main">{renderRoute(path)}</main>
+      <main className="app-main">{path === "/assistant/history" ? <AssistantHistory key={session?.user.id} /> : renderRoute(path)}</main>
+      {session && <AssistantPet key={session.user.id} user={session.user} />}
     </div>
   );
 }

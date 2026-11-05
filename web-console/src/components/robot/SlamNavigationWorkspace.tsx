@@ -10,7 +10,7 @@ import { NavigationSetup, NavigationTaskPanel } from "./NavigationOperations";
 import { Link } from "../../lib/router";
 
 export function SlamNavigationWorkspace({ onActive }: { onActive: (active: boolean) => void }) {
-  const live=useRobotStream(), {api,status,mapSnapshot:map,mapStale}=live;
+  const live=useRobotStream(), {api,status,mapSnapshot:map,mapStale,navigationCapability}=live;
   const session=useBusinessSession();
   const manage=!!session?.user.role?.permissions.some(p=>p.name==="maps.manage");
   const [maps,setMaps]=useState<ManagedMap[]>([]),[selectedId,setSelectedId]=useState("");
@@ -140,7 +140,8 @@ export function SlamNavigationWorkspace({ onActive }: { onActive: (active: boole
       {target&&current&&expected&&!locked&&<label className="navigation-yaw">到达朝向（SLAM 坐标）<input aria-label="SLAM 到达朝向" type="number" min={-180} max={180} value={Math.round(current.yaw*180/Math.PI)} onChange={e=>{const value=Number(e.target.value);if(Number.isFinite(value))choose({...target,yaw:worldYawToDrawing(value*Math.PI/180,expected.matrix)});}}/><small>沿 X 正方向 0°，沿 Y 正方向 90°</small></label>}
       {plan&&!active&&<div className="navigation-distance"><span>路线长度</span><strong>{plan.distance.toFixed(2)} m</strong></div>}
       <button className="btn btn-outline navigation-action" disabled={!target||!canPlan} onClick={()=>void preview()}>{plan?"重新预览路线":"预览路线"}</button>
-      <button className="btn btn-primary navigation-action" disabled={!plan||!canPlan||plan.map_key!==key} onClick={()=>void action(async()=>{window.dispatchEvent(new Event("robot-control-stop"));await api.startNavigation(plan!.plan_id);setPlan(null);})}><Navigation size={15}/>开始导航</button>
+      <button className="btn btn-primary navigation-action" disabled={!plan||!canPlan||plan.map_key!==key||!navigationCapability?.executable} onClick={()=>void action(async()=>{window.dispatchEvent(new Event("robot-control-stop"));await api.startNavigation(plan!.plan_id);setPlan(null);})}><Navigation size={15}/>开始导航</button>
+      {nav.ready && !navigationCapability?.executable && <small>{navigationCapability?.reasons.includes("vehicle_acceptance_required") ? "导航缺少当前版本的实车验收" : "导航能力尚未确认"}</small>}
       <button className="btn btn-outline navigation-action navigation-stop" disabled={!online||!active&&!busy} onClick={()=>{generation.current++;void action(async()=>{await api.cancelNavigation();setPlan(null);});}}><Square size={14}/>停止导航</button>
       <p className="navigation-hint" role="status">{feedback}</p>
       {placesError&&<p className="navigation-hint" role="status">地点读取失败：{placesError}</p>}

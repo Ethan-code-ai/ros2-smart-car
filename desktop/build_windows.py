@@ -23,6 +23,7 @@ def main():
              '--add-data',str(root/'scripts/switch_wifi_remote.py')+';vehicle',
              '--add-data',str(root/'desktop/insightrover_desktop/vehicle_start.sh')+';vehicle',
              '--collect-submodules','app','--collect-submodules','paramiko',
+             '--collect-data','tzdata',
              '--hidden-import','uvicorn.logging','--hidden-import','uvicorn.loops.asyncio',
              '--hidden-import','uvicorn.protocols.http.h11_impl','--hidden-import','uvicorn.protocols.websockets.websockets_impl',
              '--hidden-import','uvicorn.lifespan.on','--hidden-import','websockets.legacy.client']

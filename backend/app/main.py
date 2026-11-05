@@ -7,12 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api.router import api_router, ws_router
 from .api.routes.health import router as health_router
+from .api.routes.vehicle_control import router as vehicle_control_router
 from .core.config import settings
 from .db.base import Base
 from .db.migrate import ensure_schema
 from .db.session import engine
 from .services.realtime import get_realtime_store
 from .services.storage import get_storage
+from .services.robot_context import robot_context_service
+from .services.task_reconciler import run_task_reconciler
+from .services.control_leases import control_lease_manager
+from .services.assistant_worker import AssistantWorker, cancel_on_desktop_exit
 
 
 @asynccontextmanager
@@ -23,14 +28,21 @@ async def lifespan(app: FastAPI):
     get_realtime_store()
     get_storage()
     from .services.safety_ingest import run_safety_ingest
-    worker = asyncio.create_task(run_safety_ingest()) if settings.database_url != 'sqlite://' else None
+    workers = [asyncio.create_task(run_safety_ingest()),
+               asyncio.create_task(control_lease_manager.run()),
+               asyncio.create_task(run_task_reconciler()),
+               asyncio.create_task(AssistantWorker().run()),
+               asyncio.create_task(robot_context_service.run())] if settings.database_url != 'sqlite://' else []
     try:
         yield
     finally:
-        if worker:
+        for worker in workers:
             worker.cancel()
+        for worker in workers:
             with suppress(asyncio.CancelledError):
                 await worker
+        if getattr(app.state, "exit_requested", False):
+            await cancel_on_desktop_exit()
 
 
 app = FastAPI(title="InsightRover Smart Patrol API", version=settings.app_version, lifespan=lifespan)
@@ -46,3 +58,4 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(ws_router)
 app.include_router(health_router)
+app.include_router(vehicle_control_router)

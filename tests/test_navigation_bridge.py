@@ -2,6 +2,7 @@
 import asyncio
 import importlib.util
 import sys
+import time
 from concurrent.futures import Future
 from pathlib import Path
 from types import ModuleType, SimpleNamespace as NS
@@ -81,10 +82,10 @@ def bridge(monkeypatch, make_fake_node):
     return mod.NavigationBridge(node)
 
 
-def preview(bridge):
+def preview(bridge, *, preview_epoch=None):
     poses = [NS(pose=NS(position=NS(x=x, y=2.7))) for x in (1, 2, 3)]
     bridge.planner.response = finished(GoalHandle(NS(status=4, result=NS(path=NS(poses=poses)))))
-    return asyncio.run(bridge.plan({"map_key": map_key(lab_map()), "goal": {"x": 3, "y": 2.7, "yaw": 0}, "calibration_matrix": bridge.node.navigation_config.snapshot()["calibration"]["matrix"]}))
+    return asyncio.run(bridge.plan({"map_key": map_key(lab_map()), "goal": {"x": 3, "y": 2.7, "yaw": 0}, "calibration_matrix": bridge.node.navigation_config.snapshot()["calibration"]["matrix"]}, preview_epoch=preview_epoch))
 
 
 def test_preview_does_not_change_mode_and_completion_stops(bridge):
@@ -98,6 +99,25 @@ def test_preview_does_not_change_mode_and_completion_stops(bridge):
     handle.result.set_result(NS(status=4))
     assert bridge.snapshot()["state"] == "succeeded"
     assert bridge.node.mode_commands[-1] == "stop"
+
+
+def test_independent_preview_requires_same_epoch_and_watchdog_stops_after_revocation(bridge):
+    plan = preview(bridge, preview_epoch=("controller", "before-stop"))
+    lease = {"controller_id": "controller", "control_epoch": "after-stop", "owner": "host"}
+    with pytest.raises(RuntimeError, match="控制代际"):
+        asyncio.run(bridge.start({"plan_id": plan["plan_id"], "control_lease": lease}))
+    assert bridge.navigator.requests == []
+    plan = preview(bridge, preview_epoch=("controller", "after-stop"))
+    handle = GoalHandle()
+    bridge.navigator.response = finished(handle)
+    bridge.node.control_lease_ack = {**lease, "blocked": False, "received_at": time.monotonic()}
+    asyncio.run(bridge.start({"plan_id": plan["plan_id"], "control_lease": lease}))
+    assert bridge.snapshot()["state"] == "running"
+    bridge.node.control_lease_ack["blocked"] = True
+    bridge.watchdog()
+    assert bridge.snapshot()["state"] == "failed" and handle.cancels == 1
+    with pytest.raises(ValueError, match="过期"):
+        asyncio.run(bridge.start({"plan_id": plan["plan_id"], "control_lease": lease}))
 
 
 def test_startup_requires_an_observed_stop_before_accepting_navigation(bridge):

@@ -2,6 +2,8 @@ from fastapi import APIRouter
 
 from .routes import (
     analytics,
+    assistant,
+    capability_acceptances,
     audit,
     auth,
     incidents,
@@ -14,6 +16,7 @@ from .routes import (
     patrol_tasks,
     patrols,
     robots,
+    resources,
     roles,
     routes,
     settings,
@@ -24,7 +27,10 @@ from .routes import (
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
+api_router.include_router(assistant.router)
 api_router.include_router(robots.router)
+api_router.include_router(capability_acceptances.router)
+api_router.include_router(resources.router)
 api_router.include_router(maps.router)
 api_router.include_router(routes.router)
 api_router.include_router(patrols.router)

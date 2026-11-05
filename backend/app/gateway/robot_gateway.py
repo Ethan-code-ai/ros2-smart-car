@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from ..core.config import settings
+from ..services.windows_credentials import machine_token
 
 FORBIDDEN_TOPICS = ["/cmd_vel"]
 
@@ -48,10 +49,59 @@ class RobotGateway:
     @staticmethod
     def _client(timeout: float) -> httpx.AsyncClient:
         # trust_env=False：车端在局域网内，不走系统 HTTP/SOCKS 代理
-        return httpx.AsyncClient(timeout=timeout, trust_env=False)
+        headers = {}
+        if token := machine_token():
+            headers["X-InsightRover-Service-Token"] = token
+        return httpx.AsyncClient(timeout=timeout, trust_env=False, headers=headers)
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
+
+    async def control_lease(self, payload=None):
+        if not self.base_url:
+            raise RuntimeError("未配置车端地址")
+        async with self._client(1.5) as client:
+            response = await (client.get(self._url("/api/control-lease")) if payload is None
+                              else client.post(self._url("/api/control-lease"), json=payload))
+            response.raise_for_status()
+            return response.json()
+
+    async def stop(self):
+        if not self.base_url:
+            raise RuntimeError("未配置车端地址")
+        async with self._client(3) as client:
+            response = await client.post(self._url("/api/stop"), json={})
+            response.raise_for_status()
+            return response.json()
+
+    async def operator_request(self, path, payload):
+        if not self.base_url or path not in {"command", "mode", "mapping/restart"}:
+            raise RuntimeError("车端操作不可用")
+        timeout = 45 if path == "mapping/restart" else 2
+        async with self._client(timeout) as client:
+            response = await client.post(self._url("/api/" + path), json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def search_request(self, run_id, *, operation=None, payload=None):
+        if not self.base_url:
+            raise RuntimeError("未配置车端地址")
+        if operation not in {None, "start", "action"}:
+            raise ValueError("不支持的搜索接口")
+        async with self._client(19 if operation == "start" else 3) as client:
+            if operation is None:
+                response = await client.get(self._url("/api/search"), params={"run_id": run_id})
+                if response.status_code == 404:
+                    return None
+            else:
+                response = await client.post(self._url("/api/search/" + operation),
+                                             json={**payload, "run_id": run_id})
+            response.raise_for_status()
+            value = response.json()
+            if (not isinstance(value, dict) or value.get("run_id") != run_id
+                    or not isinstance(value.get("state"), str)):
+                raise RuntimeError("搜索回执标识不匹配")
+            return value
 
     async def save_slam_map(self) -> dict:
         if not self.base_url:
@@ -65,7 +115,7 @@ class RobotGateway:
         return result
 
     async def navigation_request(self, path: str, payload: dict | None = None, *, query: dict | None = None) -> dict:
-        if path not in {"load-map", "runtime", "task", "task/action"}:
+        if path not in {"load-map", "runtime", "task", "task/action", "resolve-resources", "config", "start"}:
             raise ValueError("不支持的导航接口")
         if not self.base_url:
             raise RuntimeError("未配置小车地址")
@@ -152,13 +202,14 @@ class RobotGateway:
                 "response": None,
             }
         try:
+            path, body = ("/api/speed", built["payload"]) if command == "speed_scale" else ("/api/command", built)
             async with self._client(self.timeout) as client:
-                response = await client.post(self._url("/api/command"), json=built)
+                response = await client.post(self._url(path), json=body)
                 response.raise_for_status()
                 return {
                     "ok": True,
                     "gateway": self.mode,
-                    "target": self._url("/api/command"),
+                    "target": self._url(path),
                     "detail": "ok",
                     "command": built,
                     "response": _safe_json(response),
@@ -167,7 +218,7 @@ class RobotGateway:
             return {
                 "ok": False,
                 "gateway": self.mode,
-                "target": self._url("/api/command"),
+                "target": self._url(path),
                 "detail": f"命令下发失败：{exc}",
                 "command": built,
                 "response": None,
@@ -228,4 +279,4 @@ def _safe_json(response: httpx.Response) -> Any:
 
 def get_robot_gateway(base_url: str | None = None) -> RobotGateway:
     """按配置构造 Gateway；base_url 为空时回退到环境配置。"""
-    return RobotGateway(base_url or settings.robot_web_url or settings.robot_gateway_url)
+    return RobotGateway(base_url if base_url is not None else settings.robot_web_url or settings.robot_gateway_url)

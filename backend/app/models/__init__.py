@@ -11,6 +11,9 @@ from .core import (
     Route,
 )
 from .user import Permission, Role, User
+from .capability import CapabilityAcceptance
+from .assistant import AssistantTrialAuthorization
+from .assistant import AssistantConfiguration, AssistantEvent, AssistantExecution, AssistantPlan, AssistantReport, AssistantSession, AssistantTurn, AssistantWorkerLock, SafetyCoverage
 
 __all__ = [
     "User",

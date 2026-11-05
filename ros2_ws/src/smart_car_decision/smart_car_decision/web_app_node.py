@@ -64,6 +64,9 @@ class WebAppNode(Node):
         self.safety_vision = None
         self.vision_service = None
         self.search_ack = {}
+        self.control_lease_ack = {}
+        self.control_lease_pub = self.create_publisher(String, '/robot/control_lease/request', 10)
+        self.create_subscription(String, '/robot/control_lease/status', self.on_control_lease_status, 10)
         self.search_control_pub = self.create_publisher(String, '/robot/search/control', 10)
         self.create_subscription(String, '/robot/search/status', self.on_search_status, 10)
 
@@ -83,6 +86,7 @@ class WebAppNode(Node):
                                                      capture_initial_inputs=self.capture_mapping_inputs)
         self.camera_stream = None
         self._last_status_at = None
+        self.stop_odometry_sample = None
         self._ros2_data_warned = False
         self.mode_pub = self.create_publisher(String, self.get_parameter("mode_set_topic").value, 10)
         self.cmd_pub = self.create_publisher(String, self.get_parameter("manual_cmd_topic").value, 10)
@@ -152,7 +156,7 @@ class WebAppNode(Node):
         if self.navigation:
             from .navigation_tasks import NavigationTaskRunner
             try:
-                self.navigation_tasks = NavigationTaskRunner(self)
+                self.navigation_tasks = NavigationTaskRunner(self, require_lease=True)
             except (ValueError, OSError) as exc:
                 self.get_logger().error(f"导航任务记录读取失败，保留原文件：{exc}")
 
@@ -169,12 +173,16 @@ class WebAppNode(Node):
         )
 
     def on_status(self, msg):
-        self._last_status_at = time.monotonic()
+        received_at = time.monotonic()
         try:
             data = json.loads(msg.data)
         except json.JSONDecodeError:
             self.get_logger().warning("忽略无效的 /robot/status JSON")
             return
+        if not isinstance(data, dict):
+            return
+        self._last_status_at = received_at
+        self.stop_odometry_sample = (received_at, data.get("odom"))
         if data.get("mode") == "stop":
             self._startup_stop_pending = False
         snapshot = self.store.update(**data)
@@ -190,6 +198,19 @@ class WebAppNode(Node):
         message=String(); message.data=json.dumps(value,allow_nan=False)
         self.search_control_pub.publish(message)
 
+    def publish_control_lease(self, value):
+        message = String()
+        message.data = json.dumps(value, allow_nan=False)
+        self.control_lease_pub.publish(message)
+
+    def on_control_lease_status(self, message):
+        try:
+            value = json.loads(message.data)
+            if isinstance(value, dict):
+                self.control_lease_ack = {**value, 'received_at': time.monotonic()}
+        except (ValueError, TypeError):
+            pass
+
     def on_search_status(self, message):
         try:
             self.search_ack=json.loads(message.data)
@@ -204,9 +225,17 @@ class WebAppNode(Node):
             pass
 
     def on_task_odom(self, msg):
+        import math
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        now = self.get_clock().now().nanoseconds / 1e9
+        self.relative_odom = {
+            "supported": True, "x": p.x, "y": p.y,
+            "yaw": math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z)),
+            "frame_id": msg.header.frame_id, "stamp": stamp,
+            "received_at": time.monotonic(), "source_age_sec": now-stamp,
+        }
         if self.navigation_tasks:
-            p = msg.pose.pose.position
-            stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
             self.navigation_tasks.observe_odometry(p.x, p.y, stamp)
 
     def on_safety_scan(self, msg):
@@ -318,10 +347,10 @@ class WebAppNode(Node):
             self.mapping_restart.stop_mapping()
         return mode
 
-    def set_command(self, command):
+    def set_command(self, command, drive=None):
         command = self.store.set_command(command)
         msg = String()
-        msg.data = command
+        msg.data = json.dumps({**drive, "command": command}) if drive is not None else command
         self.cmd_pub.publish(msg)
         return command
 

@@ -94,6 +94,62 @@ def test_unverified_model_never_starts_motion(service):
     assert service.node.store.snapshot()['mode']=='stop'
 
 
+def test_stationary_search_keeps_lock_and_retries_use_same_record(service):
+    service.status.update(state="running", mobile_ready=False)
+    payload = {"run_id": "stationary-1", "targets": [{"name": "服务器"}], "travel": "stationary"}
+    original_publish = service.node.publish_search_control
+
+    def acknowledge(value):
+        original_publish(value)
+        service.node.search_ack = {
+            "controller_id": "test", "run_id": value["run_id"], "active": True, "held": True,
+            "received_at": time.monotonic(),
+        }
+        service.status["run_id"] = value["run_id"]
+        service.result_at = time.monotonic()
+
+    service.node.search_ack = {"controller_id": "test"}
+    service.node.publish_search_control = acknowledge
+
+    async def scenario():
+        first = await service.start(payload)
+        assert first["state"] == "searching"
+        assert service.node.store.snapshot()["mode"] == "stop"
+        assert [message["op"] for message in service.messages] == ["arm"]
+        service._supervise_search(time.monotonic())
+        assert await service.start(payload) == first
+        with pytest.raises(RuntimeError, match="请求已变化"):
+            await service.start({**payload, "targets": [{"name": "实验器材"}]})
+        stopped = await service.action({"action": "cancel", "run_id": payload["run_id"]})
+        assert stopped["state"] == "cancelled" and stopped["version"] > first["version"]
+        assert await service.start(payload) == stopped
+        assert service._read_run(payload["run_id"]) == stopped
+
+    asyncio.run(scenario())
+
+
+def test_cancel_before_search_prevents_delayed_dispatch(service):
+    async def scenario():
+        tombstone = await service.action({"action": "cancel", "run_id": "late"})
+        result = await service.start({"run_id": "late", "targets": [{"name": "服务器"}]})
+        assert result == tombstone == service.search_snapshot_for("late")
+        assert not service.messages
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["planning", "dwelling", "running"])
+def test_patrol_search_allows_matching_long_running_station_transition(service, phase):
+    now = time.monotonic()
+    service.search.update(state="searching", run_id="route", travel="patrol")
+    service.route_id, service.at, service.result_at = "route", now-60, now
+    service.node.search_ack = {"active": True, "held": False, "run_id": "route", "received_at": now}
+    service.node.navigation_tasks = NS(snapshot=lambda: {"state": phase, "run_id": "route", "goal_id": "g"})
+    service.node.navigation = NS(snapshot=lambda: {"state": "succeeded", "goal_id": "g"})
+    service._supervise_search(now)
+    assert service.search["state"] == "searching"
+
+
 def test_settings_stationary_guard_and_no_false_enable(service):
     service.configure({'clutter_enabled':False})
     assert not service.settings()['clutter_enabled']
@@ -161,23 +217,36 @@ def test_shared_safety_outbox_exposes_and_acknowledges_yolo_events(service,fake_
         assert service.outbox.pending()==[]
 
 
-def test_search_auto_arm_confirm_pause_and_cancel(service):
+def test_patrol_search_arms_before_start_and_cancels_route(service):
     service.status.update(state='running',mobile_ready=True)
     service.node.avoidance_service=NS(snapshot=lambda:{'confirmed':True,'available':True})
     service.node.search_ack={'controller_id':'controller'}
+    actions = []
+
+    async def create(spec):
+        return {"run_id": spec["run_id"], "state": "prepared"}
+
+    async def action(value):
+        actions.append(value)
+
+    service.node.navigation_tasks = NS(active=False, _lease_valid=lambda identity: bool(identity),
+                                       create=create, action=action, snapshot=lambda: {"run_id": "route", "state": "prepared"})
     def publish(value):
         service.messages.append(value)
         service.node.search_ack={**value,'active':value['op']!='release','held':value['op'] not in {'resume','heartbeat'},'received_at':time.monotonic()}
         service.status['run_id']=value['run_id'];service.result_at=time.monotonic()
     service.node.publish_search_control=publish
     async def exercise():
-        state=await service.start({'targets':[{'name':'服务器'}]})
-        assert state['state']=='searching' and service.node.store.snapshot()['mode']=='auto'
+        state=await service.start({'run_id': 'route', 'targets':[{'name':'服务器'}],
+                                   'travel': 'patrol', 'control_lease': {'owner': 'host'}})
+        assert state['state']=='searching'
         assert [m['op'] for m in service.messages[:2]]==['arm','resume']
+        assert actions[0] == {'run_id': 'route', 'action': 'start', 'control_lease': {'owner': 'host'}}
         await service.action({'run_id':state['run_id'],'action':'pause'})
         assert service.search['state']=='paused' and service.node.store.snapshot()['mode']=='stop'
         await service.action({'run_id':state['run_id'],'action':'cancel'})
         assert service.search['state']=='cancelled' and service.desired_gate=='hold'
+        assert actions[-1]['action'] == 'cancel'
     asyncio.run(exercise())
 
 

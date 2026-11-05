@@ -4,6 +4,8 @@
 存储实现见 services/storage.py（MinIO 优先，未配置时使用本地目录）。
 """
 from typing import Optional
+import hashlib
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -50,10 +52,39 @@ def _bad_request(exc: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail={"code": "BAD_REQUEST", "message": str(exc)})
 
 
-@router.post("/presign")
-def presign(payload: PresignIn, _: User = Depends(get_current_user)) -> dict:
+def _upload_permission(user):
+    if user.permissions.isdisjoint({"maps.manage", "incidents.manage"}):
+        raise HTTPException(403, "缺少媒体上传权限")
+
+
+def _owned_upload(key, user):
+    _upload_permission(user)
     try:
-        return get_storage().presign_upload(payload.key, expires_in=payload.expires_in)
+        safe = normalize_key(key)
+    except ValueError as exc:
+        raise _bad_request(exc)
+    if not safe.startswith(f"uploads/{user.id}/"):
+        raise HTTPException(403, "只能写入本人的上传暂存区")
+    return safe
+
+
+def _read_permission(key, user):
+    if key.startswith(f"uploads/{user.id}/"):
+        return
+    permission = "maps.read" if key.startswith("maps/") else "incidents.read" if key.startswith("incidents/") else None
+    if permission is None or permission not in user.permissions:
+        raise HTTPException(403, "没有此资源的读取权限")
+
+
+@router.post("/presign")
+def presign(payload: PresignIn, user: User = Depends(get_current_user)) -> dict:
+    _upload_permission(user)
+    try:
+        filename = normalize_key(payload.key).rsplit("/", 1)[-1]
+        key = f"uploads/{user.id}/{uuid4().hex}/{filename}"
+        # Uploads pass through the authenticated host for both storage backends.
+        return {"backend": get_storage().backend, "key": key, "method": "PUT",
+                "url": f"/api/v1/media/object/{key}", "expires_in": payload.expires_in}
     except ValueError as exc:
         raise _bad_request(exc)
 
@@ -66,9 +97,15 @@ def complete(
 ) -> dict:
     storage = get_storage()
     try:
-        key = normalize_key(payload.key)
+        key = _owned_upload(payload.key, user)
     except ValueError as exc:
         raise _bad_request(exc)
+    data = storage.get(key)
+    if data is None:
+        raise HTTPException(404, "上传对象不存在")
+    digest = hashlib.sha256(data).hexdigest()
+    if payload.size != len(data) or (payload.sha256 and payload.sha256 != digest):
+        raise HTTPException(409, "上传对象大小或摘要不匹配")
     record_audit(
         db,
         user,
@@ -78,7 +115,7 @@ def complete(
         after={
             "key": key,
             "size": payload.size,
-            "sha256": payload.sha256,
+            "sha256": digest,
             "ref_type": payload.ref_type,
             "ref_id": payload.ref_id,
         },
@@ -87,7 +124,7 @@ def complete(
     return {
         "key": key,
         "size": payload.size,
-        "sha256": payload.sha256,
+        "sha256": digest,
         "content_type": payload.content_type,
         "backend": storage.backend,
         "ref_type": payload.ref_type,
@@ -107,23 +144,25 @@ async def _store_object(key: str, request: Request) -> dict:
 async def upload_object_put(
     key: str,
     request: Request,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    return await _store_object(key, request)
+    return await _store_object(_owned_upload(key, user), request)
 
 
 @router.post("/object/{key:path}")
 async def upload_object_post(
     key: str,
     request: Request,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    return await _store_object(key, request)
+    return await _store_object(_owned_upload(key, user), request)
 
 
 @router.get("/object/{key:path}")
-def get_object(key: str, _: User = Depends(get_current_user)) -> Response:
+def get_object(key: str, user: User = Depends(get_current_user)) -> Response:
     try:
+        key = normalize_key(key)
+        _read_permission(key, user)
         data = get_storage().get(key)
     except ValueError as exc:
         raise _bad_request(exc)
