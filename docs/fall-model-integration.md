@@ -14,7 +14,7 @@
 
 ## 获取模型
 
-不把二进制权重提交到 Git（仓库忽略 `*.pt`）。在开发机或车端执行：
+当前接入分支已直接包含这份 5.47 MB 权重，合作者拉取分支后可以立即测试。仓库仍忽略新生成的其他 `*.pt` 文件；如果需要在没有该分支权重的环境重新获取，执行：
 
 ```powershell
 python scripts/fetch_fall_model.py --output "$HOME/.ros/insightrover/models/yolo11-fall.pt"
