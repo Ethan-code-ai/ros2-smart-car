@@ -33,8 +33,15 @@ def load_config(path, value=None):
     for spec in config.get('models', []):
         if not isinstance(spec, dict) or not isinstance(spec.get('path'), str) or not isinstance(spec.get('class_map'), dict):
             raise ValueError('专项模型配置无效')
-        model_path = Path(spec['path']).expanduser()
-        model_path = model_path if model_path.is_absolute() else path.parent / model_path
+        raw_model_path = Path(spec['path']).expanduser()
+        model_path = raw_model_path if raw_model_path.is_absolute() else path.parent / raw_model_path
+        if not model_path.is_file() and not raw_model_path.is_absolute():
+            # A checked-in model is installed beside the package config by
+            # setup.py. This also lets a copied ~/.ros config use the tracked
+            # model without a second manual weight-copy step.
+            bundled = Path(__file__).resolve().parents[1] / 'models' / raw_model_path.name
+            if bundled.is_file():
+                model_path = bundled
         if not model_path.is_file() or model_path.suffix not in {'.pt', '.engine', '.onnx'}:
             raise ValueError(f'专项模型文件不存在：{model_path}')
         spec['path'] = str(model_path.resolve())

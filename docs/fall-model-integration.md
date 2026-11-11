@@ -24,7 +24,7 @@ Windows PowerShell 中 `$HOME` 可替换为实际用户目录；Jetson 上使用
 
 ## 车端配置
 
-将 `ros2_ws/src/smart_car_decision/config/safety-vision.example.json` 复制到车端 `~/.ros/insightrover/safety-vision.json`，保留已有烟火模型，再把倒地条目作为第二个 `models` 元素。模型路径、类别映射和 SHA256 已填好；烟火权重的真实路径和映射保留原配置。
+将 `ros2_ws/src/smart_car_decision/config/safety-vision.example.json` 复制到车端 `~/.ros/insightrover/safety-vision.json`，保留已有烟火模型，再把倒地条目作为第二个 `models` 元素。倒地路径使用 `models/yolo11-fall.pt`；车端会优先读取配置旁的路径，再读取已安装包中的 `models/` 权重，因此同步并构建本分支后可以直接测试。模型类别映射和 SHA256 已填好；烟火权重的真实路径和映射保留原配置。
 
 `enabled` 必须为 `true`。默认 `confirm_sec=2`：同一倒地目标持续可见约2秒才上报；短暂断帧会重新累计，清除10秒后再次出现才产生新事件。报警不会主动停车，车辆继续按现有巡航策略运行。
 
